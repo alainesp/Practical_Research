@@ -1,13 +1,10 @@
-***
 # LSA<sub>max</sub> - A Better Insertion for Cuckoo Hashing
 
-***
 Alain Espinosa <alainesp@gmail.com>
 
 `Published: May 16, 2018`
 
 `Last Edited: May 16, 2018` (version 0.1 - consider it *beta* version or *FIRST DRAFT*)
-***
 
 ### Abstract
 
@@ -21,7 +18,7 @@ each possible item to a unique location, but this objective is rarely achievable
 There are two natural ways to generalize cuckoo hashing. The first is to increase the number of hash function used from `2` to a general `d > 1`. The second is to increase the capacity of a memory location (bucket) so that it can store more than one item. We remark that it is also possible to have the buckets overlap. This was shown in [[3]] to carry some advantages, but henceforth we assume buckets are distinct. These schemes could of course be combined, hence we define the `(d,k)`-cuckoo scheme as one that uses `d` hash functions and a capacity of `k` in each bucket. In this terminology the standard cuckoo hashing scheme described previously is the `(2,1)`-scheme. The goal of these schemes is to increase the space utilization of the data structure from `50%` with vanilla cuckoo hashing.
 
 |   d\k   |  k=1  |  k=2  |  k=3   |  k=4   |  k=8    |
-| :------ |
+| ------- | ----: | ----: | -----: | -----: | ------: |
 | **d=2** |  50%  | 89.7% | 95.9%  | 98.0%  | 99.8%   |
 | **d=3** | 91.8% | 98.8% | 99.7%  | 99.9%  | 99.999% |
 | **d=4** | 97.7% | 99.8% | 99.98% | 99.99% | 99.999% |
@@ -172,7 +169,7 @@ We do a number of experiments to validate our algorithm/model. All random number
 We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</sup> bins. Table 2 shows different configurations ordered by table use. Strategy **XXX Global** means treat all `d*k` locations as independent applying **XXX** tie-breaking strategy. **LL XXX** first resolve inter-bucket ties by **Least-Loaded** and then apply **XXX** for intra-bucket ties.
 
 | Strategy/l<sub>max</sub> | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
-| :----------------------- |
+| :----------------------- | --- | --- | --- | --- | --- | --- | --- |
 | **LL Global**            | 23.2% ± 11.7% | 95.8% ± 14.4% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% |
 | **LL LL**                | 23.0% ± 13.8% | 95.5% ± 3.5% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% |
 | **LL Left**              | 49.6% ± 13.2% | 92.4% ± 3.2% | 97.6% ± 0.4% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2%|
@@ -229,8 +226,8 @@ For hash tables when the maximum number of items is known, inserting up-to the m
 
 Given all experiments performed we can now propose optimal parameters for the different schemes in table 3.
 
-| d\k |       Parameter       | k=2 | k=3 | k=4 | k=8 |
-| :-------------------------- |
+| d\k  |       Parameter       | k=2 | k=3 | k=4 | k=8 |
+| :--- | --------------------- | --- | --- | --- | --- |
 | **d=2** | **Table use (BFS)** | 89.7% | 95.9% | 98.0% | 99.8% |
 |         | **Table use (RW)**  | 87.1% | 93.9% | 96.5% | 99.2% |
 |         | **Table use (LSA<sub>max</sub>)** | 89.7% (**l<sub>max</sub>**=8) | 95.5% (**l<sub>max</sub>**=4) | 98.0% (**l<sub>max</sub>**=4) | 99.6% (**l<sub>max</sub>**=2) |
