@@ -22,6 +22,7 @@ There are two natural ways to generalize cuckoo hashing. The first is to increas
 | **d=2** |  50%  | 89.7% | 95.9%  | 98.0%  | 99.8%   |
 | **d=3** | 91.8% | 98.8% | 99.7%  | 99.9%  | 99.999% |
 | **d=4** | 97.7% | 99.8% | 99.98% | 99.99% | 99.999% |
+
 Table 1: Maximum theoretic memory utilization for `(d,k)`-cuckoo scheme
 
 In practice an increase in `d` and `k` are not equivalent. Increasing `d` requires an additional computation of hash function and one more random memory probe which is likely to be a cache miss. On the other hand, a moderate increase in `k` may come with almost no cost at all if the items in the bucket share the same cache line. Thus, an appealing option in practice is setting `d = 2` and `k = 4` for fast lookup with high table use. When very high table use is needed (`>99%`), popular configurations are `(2,8)` or `(3,8)`.
@@ -176,6 +177,7 @@ We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</su
 | **LL Random**            | 49.9% ± 14.1%| 91.8% ± 3.4% | 97.5% ± 0.4% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% |
 | **Random Global**        | 28.6% ± 15.7% | 80.5% ± 15.3% | 96.2%  ± 2.8% | 97.9% ± 0.3% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0 ± 0.2%% |
 | **Left Global**          | 23.1% ± 11.5% | 71.6% ± 18.4% | 93.4% ± 4.6% | 97.5% ± 0.6% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% |
+
 Table 2: Comparing tie-breaking strategies (cells contain average table use with variance)
 
 It is clear from table 2 that the **Least-Loaded (LL)** strategy provides the fastest convergence; but all converges quickly: at **l<sub>max</sub>=5** all strategies reach **98%** table use. Note that the variance converges to `0.2%` quickly too. For **l<sub>max</sub>=2** the difference between the best and worst strategy is `24%`. The difference between the best and random is `15%`. Even for **l<sub>max</sub>=3** the difference between the best and random is `2%` with is significant given the high table use. We conclude that a good tie-breaking strategy is very important for an optimal convergence.
@@ -240,6 +242,7 @@ Given all experiments performed we can now propose optimal parameters for the di
 |         | **LB<sub>size</sub> (bit/elem)** | (2+2)/2=**2** | (2+3)/3=**1.7** | (1+4)/4=**1.25** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>4x3</sup>x(4+3)/8=**3.5 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>9x3</sup>x(9+5)/8=**224 mb** |
 |         | **l<sub>avg</sub>**   | 2.0 | 2.4 | 1.6 | 1.8 |
+
 Table 3: Proposed parameters/characteristics of **LSA<sub>max</sub>** for `(d,k)`-cuckoo scheme
 
 For `(d=2,k=2-3-4)` **LSA<sub>max</sub>** is `2%` more space efficient than `Random Walk`. For the other configurations is still better but with a low margin. It's table use is similar to `BFS`. The label size is `≤ 2` bits per element in almost all schemes. The lookup table size **LT<sub>size</sub>** is reasonable for `(d=2,k=2-3-4) (d=3,k=2)`, providing a very fast implementation. The number of items moves (measured by **l<sub>avg</sub>**) is small in all cases. The more practical schemes `d=2` see the most benefit. Popular `(2,4)`-scheme is incredible attractive now for a practical implementation with `98%` table use, only `1.5` bit per element and lookup table of `4.5kb`.
@@ -278,15 +281,15 @@ We run all the experiments with the one table implementation, although we don't 
 
 [7]: url "Alan Frieze, Páll Melsted, and Michael Mitzenmacher. An analysis of random-walk cuckoo hashing. SIAM J. Comput., 40(2):291–308, March 2011."
 
-[8]: url "Alan M. Frieze and Tony Johansson. On the insertion time of random walk cuckoo hashing. CoRR, abs/1602.04652, 2016."
+[8]: http://arxiv.org/abs/1602.04652v9 "Alan M. Frieze and Tony Johansson. On the insertion time of random walk cuckoo hashing. CoRR, abs/1602.04652, 2016."
 
 [9]: url "Megha Khosla. Balls into bins made faster. In Algorithms - ESA 2013 - 21st Annual European Symposium, Sophia Antipolis, France, September 2-4, 2013. Proceedings, pages 601–612, 2013"
 
-[10]: url "Megha Khosla and Avishek Anand. A Faster Algorithm for Cuckoo Insertion and Bipartite Matching in Large Graphs. 2016"
+[10]: http://arxiv.org/abs/1611.07786v1 "Megha Khosla and Avishek Anand. A Faster Algorithm for Cuckoo Insertion and Bipartite Matching in Large Graphs. 2016"
 
-[11]: url "Adam Kirsch and Michael Mitzenmacher. Less hashing, same performance: Building a better bloom filter. In Yossi Azar and Thomas Erlebach, editors, 14th European Symposium on Algorithms (ESA), number 4168 in LNCS, pages 456–467. Springer, 2006"
+[11]: ftp://ftp.deas.harvard.edu/techreports/tr-02-05.pdf "Adam Kirsch and Michael Mitzenmacher. Less hashing, same performance: Building a better bloom filter. In Yossi Azar and Thomas Erlebach, editors, 14th European Symposium on Algorithms (ESA), number 4168 in LNCS, pages 456–467. Springer, 2006"
 
-[12]: url "David Eppstein, Michael T. Goodrich, Michael Mitzenmacher, and Paweł Pszona. Wear Minimization for Cuckoo Hashing: How Not to Throw a Lot of Eggs into One Basket. 2014"
+[12]: http://arxiv.org/abs/1404.0286v1 "David Eppstein, Michael T. Goodrich, Michael Mitzenmacher, and Paweł Pszona. Wear Minimization for Cuckoo Hashing: How Not to Throw a Lot of Eggs into One Basket. 2014"
 
 [13]: url "Yuanyuan Sun, Yu Hua, Dan Feng, Ling Yang, Pengfei Zuo, Shunde Cao. MinCounter: An Efficient Cuckoo Hashing Scheme for Cloud Storage Systems. 2015"
 
