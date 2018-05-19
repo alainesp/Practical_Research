@@ -17,13 +17,13 @@ each possible item to a unique location, but this objective is rarely achievable
 
 There are two natural ways to generalize cuckoo hashing. The first is to increase the number of hash function used from `2` to a general `d > 1`. The second is to increase the capacity of a memory location (bucket) so that it can store more than one item. We remark that it is also possible to have the buckets overlap. This was shown in [[3]] to carry some advantages, but henceforth we assume buckets are distinct. These schemes could of course be combined, hence we define the `(d,k)`-cuckoo scheme as one that uses `d` hash functions and a capacity of `k` in each bucket. In this terminology the standard cuckoo hashing scheme described previously is the `(2,1)`-scheme. The goal of these schemes is to increase the space utilization of the data structure from `50%` with vanilla cuckoo hashing.
 
-|   d\k   |  k=1  |  k=2  |  k=3   |  k=4   |  k=8    |
-| ------- | ----: | ----: | -----: | -----: | ------: |
-| **d=2** |  50%  | 89.7% | 95.9%  | 98.0%  | 99.8%   |
-| **d=3** | 91.8% | 98.8% | 99.7%  | 99.9%  | 99.999% |
-| **d=4** | 97.7% | 99.8% | 99.98% | 99.99% | 99.999% |
+|   d\k   |  k=1  |  k=2  |  k=3   |  k=4    |  k=8    |
+| ------- | ----: | ----: | -----: | ------: | ------: |
+| **d=2** |  50%  | 89.7% | 95.9%  | 98.0%   | 99.8%   |
+| **d=3** | 91.8% | 98.8% | 99.7%  | 99.9%   | 99.999% |
+| **d=4** | 97.7% | 99.8% | 99.98% | 99.997% | 99.999% |
 
-Table 1: Maximum theoretic memory utilization for `(d,k)`-cuckoo scheme
+Table 1: Maximum expected table use for `(d,k)`-cuckoo scheme
 
 In practice an increase in `d` and `k` are not equivalent. Increasing `d` requires an additional computation of hash function and one more random memory probe which is likely to be a cache miss. On the other hand, a moderate increase in `k` may come with almost no cost at all if the items in the bucket share the same cache line. Thus, an appealing option in practice is setting `d = 2` and `k = 4` for fast lookup with high table use. When very high table use is needed (`>99%`), popular configurations are `(2,8)` or `(3,8)`.
 
@@ -196,15 +196,25 @@ We now try common schemes of cuckoo hashing to see how they behaves in figure 2,
 
 **Figure 2**: Table use of common cuckoo schemes given **l<sub>max</sub>**
 
-It is clear from figure 2 that all schemes exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table use is reached and then increases of **l<sub>max</sub>** don't increases the table use. The variance (`maximum_value - minimum_value`) is similar to table 2. From this experiments we can produce the following proposition:
+It is clear from figure 2 that all schemes exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table use is reached and then increases of **l<sub>max</sub>** don't increases the table use.
 
-**Proposition 1**: *For each `(d,k)`-schemes we can select a *very small constant* **l<sub>max</sub>** that with high probability results in table use similar to the best theoretically. Higher **l<sub>max</sub>** gives infinitesimal small increases in table use.*
+The variance (`average_value - minimum_value`) is similar to table 2, but we perform an additional experiment. We check how table use is distributed again distances to the average value. We repeat the process `10 000` times for the different schemes in figure 3. We use the **l<sub>max</sub>** values of table 3.
 
-We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 3. It is clear that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table use was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
+![Schemes errors](/imgs/schemes_errors.png)
+
+**Figure 3**: Distribution of table use given distances to the average.
+
+It is clear from figure 3 that given a fixed value of `d` increasing `k` tighten the distribution around the average. It is a little perplexing that given a fixed `k` increasing `d` increases the number near average (`<0.1%`), but also expand the distribution increasing the numbers away from average (`≥0.3%`) in `(d,k=2,4)`-schemes. In any case the errors are minimal: for a distance `<0.5%` all schemes had probability `>99%` and many near `100%`. This is consistent with the existence of thresholds for random graphs.
+
+From this experiments we can produce the following proposition:
+
+**Proposition 1**: *For each `(d,k)`-scheme we can select a *very small constant* **l<sub>max</sub>** that with high probability results in table use similar to the best theoretically. Higher **l<sub>max</sub>** gives infinitesimal small increases in table use.*
+
+We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 4. It is clear that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table use was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
 
 ![Compare schemes](/imgs/table_use_by_table_size.png)
 
-**Figure 3**: Table use by table size given different **l<sub>max</sub>**
+**Figure 4**: Table use by table size given different **l<sub>max</sub>**
 
 #### Lookup Tables
 
@@ -214,7 +224,7 @@ Given the small size of labels and the efficient coding of them inside buckets w
 
 For the `(2,4)`-scheme this is `4.5 kb`, witch is reasonable. Note that this implementation is incredible fast on practical computers, faster than `Random Walk` for the selection of the element to be kicked-out. Other efficient implementation without lookup tables is possible given the way we code the labels (using masked comparison on minimum and popcount for **Least-Loaded** and item selection).
 
-We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table use in figure 4.
+We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table use in figure 5.
 
 ![Compare schemes](/imgs/insertion_time.png)
 
@@ -230,13 +240,13 @@ Given all experiments performed we can now propose optimal parameters for the di
 
 | d\k  |       Parameter       | k=2 | k=3 | k=4 | k=8 |
 | :--- | --------------------- | --- | --- | --- | --- |
-| **d=2** | **Table use (BFS)** | 89.7% | 95.9% | 98.0% | 99.8% |
+| **d=2** | **Table use (Limit)** | 89.7% | 95.9% | 98.0% | 99.8% |
 |         | **Table use (RW)**  | 87.1% | 93.9% | 96.5% | 99.2% |
 |         | **Table use (LSA<sub>max</sub>)** | 89.7% (**l<sub>max</sub>**=8) | 95.5% (**l<sub>max</sub>**=4) | 98.0% (**l<sub>max</sub>**=4) | 99.6% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (3+2)/2=**2.5** | (2+3)/3=**1.7** | (2+4)/4=**1.5** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>5x2</sup>x(5+2)/8=**896 bytes** | 2<sup>5x2</sup>x(5+3)/8=**1 kb** | 2<sup>6x2</sup>x(6+3)/8=**4.5 kb** | 2<sup>9x2</sup>x(9+4)/8=**416 kb** |
 |         | **l<sub>avg</sub>**   | 3.6 | 2.3 | 2.8 | 1.6 |
-| **d=3** | **Table use (BFS)** | 98.8% | 99.7% | 99.9% | 99.999% |
+| **d=3** | **Table use (Limit)** | 98.8% | 99.7% | 99.9% | 99.999% |
 |         | **Table use (RW)**  | 97.6% | 99.1% | 99.5% | 99.9% |
 |         | **Table use (LSA<sub>max</sub>)**       | 98.1% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=2) | 99.998% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (2+2)/2=**2** | (2+3)/3=**1.7** | (1+4)/4=**1.25** | (1+8)/8=**1.1** |
@@ -269,27 +279,27 @@ We run all the experiments with the one table implementation, although we don't 
 
 [1]: url "Yossi Azar, Andrei Z. Broder, Anna R. Karlin, and Eli Upfal. Balanced allocations. SIAM J. Comput., 29(1):180–200, September 1999."
 
-[2]: url "Rasmus Pagh and Flemming Friche Rodler. Cuckoo hashing. J. Algorithms, 51(2):122–144, May 2004"
+[2]: http://dx.doi.org/10.1016/j.jalgor.2003.12.002 "Rasmus Pagh and Flemming Friche Rodler. Cuckoo hashing. J. Algorithms, 51(2):122–144, May 2004"
 
-[3]: url "Eric Lehman and Rina Panigrahy. 3.5-way cuckoo hashing for the price of 2-and-a-bit. In Amos Fiat and Peter Sanders, editors, ESA, volume 5757 of Lecture Notes in Computer Science, pages 671–681. Springer, 2009."
+[3]: http://dx.doi.org/10.1007/978-3-642-04128-0_60 "Eric Lehman and Rina Panigrahy. 3.5-way cuckoo hashing for the price of 2-and-a-bit. In Amos Fiat and Peter Sanders, editors, ESA, volume 5757 of Lecture Notes in Computer Science, pages 671–681. Springer, 2009."
 
-[4]: url "Dimitris Fotakis, Rasmus Pagh, Peter Sanders, and Paul G. Spirakis. Space efficient hash tables with worst case constant access time. Theory Comput. Syst., 38(2):229–248, 2005."
+[4]: http://dx.doi.org/10.1007/s00224-004-1195-x "Dimitris Fotakis, Rasmus Pagh, Peter Sanders, and Paul G. Spirakis. Space efficient hash tables with worst case constant access time. Theory Comput. Syst., 38(2):229–248, 2005."
 
-[5]: url "Martn Dietzfelbinger and Christoph Weidling. Balanced allocation and dictionaries with tightly packed constant size bins. Theoretical Computer Science, 380(1-2):47–68, 2007."
+[5]: http://dx.doi.org/10.1016/j.tcs.2007.02.054 "Martin Dietzfelbinger and Christoph Weidling. Balanced allocation and dictionaries with tightly packed constant size bins. Theoretical Computer Science, 380(1-2):47–68, 2007."
 
-[6]: url "Nikolaos Fountoulakis, Konstantinos Panagiotou, and Angelika Steger. On the insertion time of cuckoo hashing. SIAM J. Comput., 42(6):2156–2181, 2013."
+[6]: https://arxiv.org/abs/1006.1231 "Nikolaos Fountoulakis, Konstantinos Panagiotou, and Angelika Steger. On the insertion time of cuckoo hashing. SIAM J. Comput., 42(6):2156–2181, 2013."
 
-[7]: url "Alan Frieze, Páll Melsted, and Michael Mitzenmacher. An analysis of random-walk cuckoo hashing. SIAM J. Comput., 40(2):291–308, March 2011."
+[7]: http://dx.doi.org/10.1137/090770928 "Alan Frieze, Páll Melsted, and Michael Mitzenmacher. An analysis of random-walk cuckoo hashing. SIAM J. Comput., 40(2):291–308, March 2011."
 
-[8]: http://arxiv.org/abs/1602.04652v9 "Alan M. Frieze and Tony Johansson. On the insertion time of random walk cuckoo hashing. CoRR, abs/1602.04652, 2016."
+[8]: https://arxiv.org/abs/1602.04652v9 "Alan M. Frieze and Tony Johansson. On the insertion time of random walk cuckoo hashing. CoRR, abs/1602.04652, 2016."
 
-[9]: url "Megha Khosla. Balls into bins made faster. In Algorithms - ESA 2013 - 21st Annual European Symposium, Sophia Antipolis, France, September 2-4, 2013. Proceedings, pages 601–612, 2013"
+[9]: https://doi.org/10.1007/978-3-642-40450-4_51 "Megha Khosla. Balls into bins made faster. In Algorithms - ESA 2013 - 21st Annual European Symposium, Sophia Antipolis, France, September 2-4, 2013. Proceedings, pages 601–612, 2013"
 
-[10]: http://arxiv.org/abs/1611.07786v1 "Megha Khosla and Avishek Anand. A Faster Algorithm for Cuckoo Insertion and Bipartite Matching in Large Graphs. 2016"
+[10]: https://arxiv.org/abs/1611.07786v1 "Megha Khosla and Avishek Anand. A Faster Algorithm for Cuckoo Insertion and Bipartite Matching in Large Graphs. 2016"
 
 [11]: ftp://ftp.deas.harvard.edu/techreports/tr-02-05.pdf "Adam Kirsch and Michael Mitzenmacher. Less hashing, same performance: Building a better bloom filter. In Yossi Azar and Thomas Erlebach, editors, 14th European Symposium on Algorithms (ESA), number 4168 in LNCS, pages 456–467. Springer, 2006"
 
-[12]: http://arxiv.org/abs/1404.0286v1 "David Eppstein, Michael T. Goodrich, Michael Mitzenmacher, and Paweł Pszona. Wear Minimization for Cuckoo Hashing: How Not to Throw a Lot of Eggs into One Basket. 2014"
+[12]: https://arxiv.org/abs/1404.0286v1 "David Eppstein, Michael T. Goodrich, Michael Mitzenmacher, and Paweł Pszona. Wear Minimization for Cuckoo Hashing: How Not to Throw a Lot of Eggs into One Basket. 2014"
 
 [13]: url "Yuanyuan Sun, Yu Hua, Dan Feng, Ling Yang, Pengfei Zuo, Shunde Cao. MinCounter: An Efficient Cuckoo Hashing Scheme for Cloud Storage Systems. 2015"
 

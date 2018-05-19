@@ -19,7 +19,7 @@
 // This is for research only, see 'Cuckoo_4x2_1t_lookup' below
 // for a proof-of-concept production code.
 ///////////////////////////////////////////////////////////////////////////////
-template<uint32_t NUM_ELEMS_BUCKET, typename T> class Cuckoo_1t
+template<uint32_t NUM_ELEMS_BUCKET, typename T, bool IS_BLOCKED> class Cuckoo_1t
 {
 private:
 	T* data;
@@ -29,15 +29,29 @@ private:
 	std::mt19937_64 r;
 
 public:
+	// Statistics
 	uint32_t same_bucket_count;
+	uint32_t num_moves;
+	uint32_t sum_labels;
 
-	Cuckoo_1t(uint32_t expected_num_elems, uint32_t random_seed) noexcept : num_buckets((expected_num_elems + NUM_ELEMS_BUCKET - 1) / NUM_ELEMS_BUCKET), 
-		num_elems(0), same_bucket_count(0), r(random_seed)
+	Cuckoo_1t(uint32_t expected_num_elems, uint32_t random_seed) noexcept : r(random_seed), num_elems(0), same_bucket_count(0), num_moves(0), sum_labels(0)
 	{
-		data = (T*)malloc(num_buckets * NUM_ELEMS_BUCKET * sizeof(T));
+		if (IS_BLOCKED)
+		{
+			num_buckets = (expected_num_elems + NUM_ELEMS_BUCKET - 1) / NUM_ELEMS_BUCKET;
+			data = (T*)malloc(num_buckets * NUM_ELEMS_BUCKET * sizeof(T));
 
-		labels = (uint8_t*)malloc(num_buckets * NUM_ELEMS_BUCKET * sizeof(uint8_t));
-		memset(labels, 0, num_buckets * NUM_ELEMS_BUCKET * sizeof(uint8_t));
+			labels = (uint8_t*)malloc(num_buckets * NUM_ELEMS_BUCKET * sizeof(uint8_t));
+			memset(labels, 0, num_buckets * NUM_ELEMS_BUCKET * sizeof(uint8_t));
+		}
+		else
+		{
+			num_buckets = expected_num_elems;
+			data = (T*)malloc((num_buckets + NUM_ELEMS_BUCKET - 1) * sizeof(T));
+
+			labels = (uint8_t*)malloc((num_buckets + NUM_ELEMS_BUCKET - 1) * sizeof(uint8_t));
+			memset(labels, 0, (num_buckets + NUM_ELEMS_BUCKET - 1) * sizeof(uint8_t));
+		}
 	}
 	~Cuckoo_1t() noexcept
 	{
@@ -46,19 +60,24 @@ public:
 	}
 	uint32_t GetCapacity() const noexcept
 	{
-		return NUM_ELEMS_BUCKET * num_buckets;
+		return IS_BLOCKED ? NUM_ELEMS_BUCKET * num_buckets : (num_buckets + NUM_ELEMS_BUCKET - 1);
 	}
 	uint32_t GetNumElems() const noexcept
 	{
 		return num_elems;
 	}
-	uint32_t GetSumLabels() const noexcept
-	{
-		return std::accumulate(labels, labels + GetCapacity(), 0);
-	}
 	double GetTableUse() const noexcept
 	{
 		return 100. * num_elems / GetCapacity();
+	}
+	void Clear()
+	{
+		num_elems = 0;
+		same_bucket_count = 0;
+		num_moves = 0;
+		sum_labels = 0;
+
+		memset(labels, 0, (IS_BLOCKED ? (num_buckets * NUM_ELEMS_BUCKET) : (num_buckets + NUM_ELEMS_BUCKET - 1)) * sizeof(uint8_t));
 	}
 	inline uint64_t HashElem(T elem) const noexcept
 	{
@@ -79,8 +98,8 @@ public:
 			// Calculate positions given hash
 			uint64_t h1 = (uint32_t)hash;
 			uint64_t h2 = (uint32_t)(hash >> 32);
-			uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
-			uint32_t pos2 = (h2 % num_buckets) * NUM_ELEMS_BUCKET;
+			uint32_t pos1 = (h1 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos2 = (h2 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
 
 			// Try to insert the element into a not full bucket. Note buckets fills evenly
 			for (int i = 0; i < NUM_ELEMS_BUCKET; i++)
@@ -118,6 +137,7 @@ public:
 			data[victim_pos] = elem;
 			elem = victim;
 			last_pos = victim_pos;
+			num_moves++;// Not needed for algorithm to work, only statistics
 		}
 
 		return false;
@@ -133,9 +153,9 @@ public:
 			// Calculate positions given hash
 			uint64_t h1 = (uint32_t)hash;
 			uint64_t h2 = (uint32_t)(hash >> 32);
-			uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
-			uint32_t pos2 = ((h1 + h2) % num_buckets)  * NUM_ELEMS_BUCKET;
-			uint32_t pos3 = ((h1 + 2 * h2) % num_buckets) * NUM_ELEMS_BUCKET;
+			uint32_t pos1 = (h1 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos2 = ((h1 + h2) % num_buckets)  * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos3 = ((h1 + 2 * h2) % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
 
 			// Try to insert the element into a not full bucket. Note buckets fills evenly
 			for (int i = 0; i < NUM_ELEMS_BUCKET; i++)
@@ -180,6 +200,7 @@ public:
 			data[victim_pos] = elem;
 			elem = victim;
 			last_pos = victim_pos;
+			num_moves++;// Not needed for algorithm to work, only statistics
 		}
 
 		return false;
@@ -237,8 +258,8 @@ public:
 					// Calculate positions given hash
 					uint32_t h1 = (uint32_t)hash;
 					uint32_t h2 = (uint32_t)(hash >> 32);
-					uint32_t pos1 = (h1 % div) * NUM_ELEMS_BUCKET;
-					uint32_t pos2 = (h2 % div) * NUM_ELEMS_BUCKET;
+					uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
+					uint32_t pos2 = (h2 % num_buckets) * NUM_ELEMS_BUCKET;
 					uint32_t bucket_pos = (items_pos[i] / NUM_ELEMS_BUCKET) * NUM_ELEMS_BUCKET;
 					uint32_t new_ll = Calculate_Load(bucket_pos == pos1 ? pos2 : pos1);
 
@@ -366,8 +387,8 @@ public:
 					// Calculate positions given hash
 					uint32_t h1 = (uint32_t)hash;
 					uint32_t h2 = (uint32_t)(hash >> 32);
-					uint32_t pos1 = (h1 % div) * NUM_ELEMS_BUCKET;
-					uint32_t pos2 = (h2 % div) * NUM_ELEMS_BUCKET;
+					uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
+					uint32_t pos2 = (h2 % num_buckets) * NUM_ELEMS_BUCKET;
 					uint32_t bucket_pos = (items_pos[bucket_displacement + i] / NUM_ELEMS_BUCKET) * NUM_ELEMS_BUCKET;
 					uint32_t new_ll = Calculate_Load(bucket_pos == pos1 ? pos2 : pos1);
 
@@ -531,24 +552,18 @@ public:
 			// Calculate positions given hash
 			uint32_t h1 = (uint32_t)hash;
 			uint32_t h2 = (uint32_t)(hash >> 32);
-			uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
-			uint32_t pos2 = (h2 % num_buckets) * NUM_ELEMS_BUCKET;
+			uint32_t pos1 = (h1 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos2 = (h2 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
 
 			// Find minimun label
 			uint32_t min_label, min_label2;
 			uint32_t pos = TB_LL_Left(pos1, pos2, &min_label, &min_label2);
 
-			// Count when an item reinsert into a bucket where it was kicked-out.
-			// Not needed for algorithm to work, only statistics
-			uint32_t bucket_pos = pos / NUM_ELEMS_BUCKET * NUM_ELEMS_BUCKET;
-			if (last_bucket_pos == bucket_pos)
-				same_bucket_count++;
-			last_bucket_pos = bucket_pos;
-
 			// Terminating condition
 			if (min_label >= L_max)
 				return false;
 
+			sum_labels += min_label2 + 1 - labels[pos];// Not needed for algorithm to work, only statistics
 			labels[pos] = min_label2 + 1;
 			// Put elem
 			if (min_label)
@@ -556,6 +571,15 @@ public:
 				T victim = data[pos];
 				data[pos] = elem;
 				elem = victim;
+
+				num_moves++;// Not needed for algorithm to work, only statistics
+
+				// Count when an item reinsert into a bucket where it was kicked-out.
+				// Not needed for algorithm to work, only statistics
+				uint32_t bucket_pos = IS_BLOCKED ? (pos / NUM_ELEMS_BUCKET * NUM_ELEMS_BUCKET) : ((pos - pos1) < NUM_ELEMS_BUCKET ? pos1 : pos2);
+				if (last_bucket_pos == bucket_pos)
+					same_bucket_count++;
+				last_bucket_pos = bucket_pos;
 			}
 			else// bin is empty
 			{
@@ -567,6 +591,8 @@ public:
 	}
 	bool Insert_LSA_max_k3(T elem, uint32_t L_max) noexcept
 	{
+		uint32_t last_bucket_pos = UINT32_MAX;
+
 		while (true)
 		{
 			uint64_t hash = HashElem(elem);
@@ -574,9 +600,9 @@ public:
 			// Calculate positions given hash
 			uint32_t h1 = (uint32_t)hash;
 			uint32_t h2 = (uint32_t)(hash >> 32);
-			uint32_t pos1 = (h1 % num_buckets) * NUM_ELEMS_BUCKET;
-			uint32_t pos2 = ((h1 + h2) % num_buckets) * NUM_ELEMS_BUCKET;
-			uint32_t pos3 = ((h1 + 2 * h2) % num_buckets) * NUM_ELEMS_BUCKET;
+			uint32_t pos1 = (h1 % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos2 = ((h1 + h2) % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
+			uint32_t pos3 = ((h1 + 2 * h2) % num_buckets) * (IS_BLOCKED ? NUM_ELEMS_BUCKET : 1);
 
 			// Find minimun label
 			uint32_t min_label, min_label2;
@@ -586,6 +612,7 @@ public:
 			if (min_label >= L_max)
 				return false;
 
+			sum_labels += min_label2 + 1 - labels[pos];// Not needed for algorithm to work, only statistics
 			labels[pos] = min_label2 + 1;
 			// Put elem
 			if (min_label)
@@ -593,6 +620,15 @@ public:
 				T victim = data[pos];
 				data[pos] = elem;
 				elem = victim;
+
+				num_moves++;// Not needed for algorithm to work, only statistics
+
+				// Count when an item reinsert into a bucket where it was kicked-out.
+				// Not needed for algorithm to work, only statistics
+				uint32_t bucket_pos = IS_BLOCKED ? (pos / NUM_ELEMS_BUCKET * NUM_ELEMS_BUCKET) : ((pos - pos1) < NUM_ELEMS_BUCKET ? pos1 : pos2);
+				if (last_bucket_pos == bucket_pos)
+					same_bucket_count++;
+				last_bucket_pos = bucket_pos;
 			}
 			else// bin is empty
 			{
@@ -864,13 +900,14 @@ static void Create_Lookup_Table_2x4()
 
 #define CUCKOO_CAPACITY 100'000
 #define MAX_REPETITIONS 1000
-#define MAX_L 15
+#define MAX_L 7
 struct TestData {
 	double min;
 	double max;
 	double sum;
 	uint32_t sum_labels;
 	uint32_t unnecesary_moves;
+	uint32_t num_moves;
 };
 void test_lmax()
 {
@@ -884,10 +921,13 @@ void test_lmax()
 		data[i].min = 100;
 		data[i].sum_labels = 0;
 		data[i].unnecesary_moves = 0;
+		data[i].num_moves = 0;
 	}
 
 	// Seed with a real random value, if available
 	std::random_device good_random;
+	// Change first template parameter from 4 to other k to see other schemes
+	Cuckoo_1t<4, uint64_t, true> cuckoo_table(CUCKOO_CAPACITY, good_random());
 
 	auto start = std::chrono::high_resolution_clock::now();
 
@@ -895,8 +935,7 @@ void test_lmax()
 	{
 		uint32_t l_max = 0;
 		std::mt19937_64 r(good_random());
-		// Change first template parameter from 4 to other k to see other schemes
-		Cuckoo_1t<4, uint64_t> cuckoo_table(CUCKOO_CAPACITY, good_random());
+		cuckoo_table.Clear();
 
 		// Fill the table
 		while (true)
@@ -908,8 +947,9 @@ void test_lmax()
 			{
 				double rate = cuckoo_table.GetTableUse();
 				data[l_max].sum += rate;
-				data[l_max].sum_labels += cuckoo_table.GetSumLabels();
+				data[l_max].sum_labels += cuckoo_table.sum_labels;
 				data[l_max].unnecesary_moves += cuckoo_table.same_bucket_count;
+				data[l_max].num_moves += cuckoo_table.num_moves;
 				if (data[l_max].min > rate)
 					data[l_max].min = rate;
 				if (data[l_max].max < rate)
@@ -928,18 +968,75 @@ void test_lmax()
 	printf("Time: %ums\n\n", (uint32_t)elapsed.count());
 
 	printf("------------------------------------------------------------\n");
-	printf("L_max          Table_Use          Labels  Unnecesary\n");
-	printf("     (min_diff-  avg   +max_diff)\n");
+	printf("L_max          Table_Use          Labels   Total  Unnecesary\n");
+	printf("     (min_diff-  avg   +max_diff)          Moves    Moves\n");
 	printf("------------------------------------------------------------\n");
 	for (uint32_t l_max = 0; l_max < MAX_L; l_max++)
 	{
 		double avg_use = data[l_max].sum / MAX_REPETITIONS;
-		printf("%02u     %05.2f%% - %05.2f%% + %.2f%%     %.2f    %.2f\n"
+		printf("%02u     %05.2f%% - %05.2f%% + %05.2f%%     %.2f   %.2f     %.2f\n"
 			, l_max + 1
 			, avg_use - data[l_max].min, avg_use, data[l_max].max - avg_use
 			, data[l_max].sum_labels*1. / MAX_REPETITIONS / CUCKOO_CAPACITY,
+			data[l_max].num_moves*1. / MAX_REPETITIONS / CUCKOO_CAPACITY,
 			data[l_max].unnecesary_moves*1. / MAX_REPETITIONS / CUCKOO_CAPACITY);
 	}
+}
+
+#define MAX_REPETITIONS_ERRORS 10'000
+void test_error()
+{
+	double rate[MAX_REPETITIONS_ERRORS];
+	double avg_rate = 0;
+
+	// Seed with a real random value, if available
+	std::random_device good_random;
+	// Change first template parameter from 4 to other k to see other schemes
+	Cuckoo_1t<4, uint64_t, true> cuckoo_table(CUCKOO_CAPACITY, good_random());
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	for (uint32_t repeat = 0; repeat < MAX_REPETITIONS_ERRORS; repeat++)
+	{
+		std::mt19937_64 r(good_random());
+		cuckoo_table.Clear();
+
+		// Fill the table
+		while (true)
+		{
+			if (!cuckoo_table.Insert_LSA_max_k2(r(), 4))
+			{
+				rate[repeat] = cuckoo_table.GetTableUse();
+				avg_rate += rate[repeat];
+				break;
+			}
+		}
+	}
+
+	auto end = std::chrono::high_resolution_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+	printf("Time: %ums\n\n", (uint32_t)elapsed.count());
+
+	avg_rate /= MAX_REPETITIONS_ERRORS;
+	double points[] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 200};
+	uint32_t counters[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+	// Calculate differences
+	for (uint32_t repeat = 0; repeat < MAX_REPETITIONS_ERRORS; repeat++)
+	{
+		double diff = avg_rate - rate[repeat];
+
+		for (int i = 0; i < (sizeof(points)/sizeof(points[0])); i++)
+			if (diff < points[i])
+			{
+				counters[i]++;
+				break;
+			}
+	}
+
+	// Show the histogram
+	for (int i = 0; i < (sizeof(points) / sizeof(points[0])); i++)
+		printf("%03.1f  %u\n", points[i] , counters[i]);
 }
 
 void test_insertion_time()
@@ -986,6 +1083,7 @@ void test_insertion_time()
 void main()
 {
 	test_lmax();
+	//test_error();
 	//Create_Lookup_Table_2x4();
 	//test_insertion_time();
 
