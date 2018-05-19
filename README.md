@@ -4,7 +4,12 @@ Alain Espinosa <alainesp@gmail.com>
 
 `Published: May 16, 2018`
 
-`Last Edited: May 16, 2018` (version 0.1 - consider it *beta* version or *FIRST DRAFT*)
+`Last Edited: May 19, 2018` (version 0.2 - consider it *beta* version or *2nd DRAFT*)
+
+- Better strategies comparison.
+- Threshold checking.
+
+version 0.1 (Initial)
 
 ### Abstract
 
@@ -180,57 +185,65 @@ We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</su
 
 Table 2: Comparing tie-breaking strategies (cells contain average table use with variance)
 
-It is clear from table 2 that the **Least-Loaded (LL)** strategy provides the fastest convergence; but all converges quickly: at **l<sub>max</sub>=5** all strategies reach **98%** table use. Note that the variance converges to `0.2%` quickly too. For **l<sub>max</sub>=2** the difference between the best and worst strategy is `24%`. The difference between the best and random is `15%`. Even for **l<sub>max</sub>=3** the difference between the best and random is `2%` with is significant given the high table use. We conclude that a good tie-breaking strategy is very important for an optimal convergence.
+The **Least-Loaded (LL)** strategy provides the fastest convergence; but all converges quickly: at **l<sub>max</sub>=5** all strategies reach **98%** table use. Note that the variance converges to `0.2%` quickly too. For **l<sub>max</sub>=2** the difference between the best and worst strategy is `24%`. The difference between the best and random is `15%`. Even for **l<sub>max</sub>=3** the difference between the best and random is `2%` with is significant given the high table use. We conclude that a good tie-breaking strategy is important for an optimal convergence.
 
-We are not only interested in table use, but also in the amount of work done. This can be measured by the average label **l<sub>avg</sub>** at each state. We test different **l<sub>max</sub>** values in Figure 1 with the same `(2,4)`-scheme with 10<sup>5</sup> bins.
+We are not only interested in table use, but also in other metrics. The average label **l<sub>avg</sub>** is one of them. We test different **l<sub>max</sub>** values in Figure 1 with the same `(2,4)`-scheme with 10<sup>5</sup> bins.
 
 ![Work done](/imgs/strategies_work_done.png)
 
-**Figure 1**: Comparing work done by tie-breaking strategies
+**Figure 1**: Comparing average label by tie-breaking strategies
 
-We can see that the amount of work done is similar for similar table use independently of the strategy. Also **l<sub>avg</sub>** depends linearly with **l<sub>max</sub>**. We select the strategy **LL Left** because had good convergence, is fast to calculate (no need to check alternate locations that may require a hash done) and may permit better coding of labels to reduce it's size. This strategy is used in all the remaining experiments.
+We can see that **l<sub>avg</sub>** is similar for similar table use independently of the strategy. Also **l<sub>avg</sub>** depends linearly with **l<sub>max</sub>**.
 
-We now try common schemes of cuckoo hashing to see how they behaves in figure 2, again with 10<sup>5</sup> bins.
+We measure how efficient each strategy are by checking table use at average moves per item. An item is moved when is kicked-out of a position in a bucket. Figure 2 show data for the `(2,4)`-scheme with 10<sup>5</sup> bins.
+
+![Work done](/imgs/strategies_table_use_per_moves.png)
+
+**Figure 2**: Comparing work done by tie-breaking strategies
+
+Again the **Least-Loaded (LL)** strategy is the more efficient with **LL_Global** leading. The results are similar to table 2. We select the strategy **LL Left** because it had good convergence, is fast to calculate (no need to check alternate locations that may require a hash done) and may permit better coding of labels to reduce it's size. This strategy is used in all the remaining experiments.
+
+We now try common schemes of cuckoo hashing to see how they behaves in figure 3, again with 10<sup>5</sup> bins.
 
 ![Compare schemes](/imgs/compare_schemes.png)
 
-**Figure 2**: Table use of common cuckoo schemes given **l<sub>max</sub>**
+**Figure 3**: Table use of common cuckoo schemes given **l<sub>max</sub>**
 
-It is clear from figure 2 that all schemes exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table use is reached and then increases of **l<sub>max</sub>** don't increases the table use.
+All schemes appear to exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table use is reached and then increases of **l<sub>max</sub>** don't increases the table use.
 
-The variance (`average_value - minimum_value`) is similar to table 2, but we perform an additional experiment. We check how table use is distributed again distances to the average value. We repeat the process `10 000` times for the different schemes in figure 3. We use the **l<sub>max</sub>** values of table 3.
+The variance (`average_value - minimum_value`) is similar to table 2, but we perform an additional experiment. We check how table use is distributed again distances to the average value. We repeat the process `10 000` times for the different schemes in figure 4. We use the **l<sub>max</sub>** values of table 3.
 
 ![Schemes errors](/imgs/schemes_errors.png)
 
-**Figure 3**: Distribution of table use given distances to the average.
+**Figure 4**: Distribution of table use given distances to the average.
 
-It is clear from figure 3 that given a fixed value of `d` increasing `k` tighten the distribution around the average. It is a little perplexing that given a fixed `k` increasing `d` increases the number near average (`<0.1%`), but also expand the distribution increasing the numbers away from average (`≥0.3%`) in `(d,k=2,4)`-schemes. In any case the errors are minimal: for a distance `<0.5%` all schemes had probability `>99%` and many near `100%`. This is consistent with the existence of thresholds for random graphs.
+From figure 4 it is implied that given a fixed value of `d` increasing `k` tighten the distribution around the average. It is a little perplexing that given a fixed `k` increasing `d` increases the number near average (`<0.1%`), but also expand the distribution increasing the numbers away from average (`≥0.3%`) in `(d,k=2,4)`-schemes. In any case the errors are minimal: for a distance `<0.5%` all schemes had probability `>99%` and many near `100%`. This is consistent with the existence of thresholds for random graphs.
 
 From this experiments we can produce the following proposition:
 
 **Proposition 1**: *For each `(d,k)`-scheme we can select a *very small constant* **l<sub>max</sub>** that with high probability results in table use similar to the best theoretically. Higher **l<sub>max</sub>** gives infinitesimal small increases in table use.*
 
-We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 4. It is clear that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table use was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
+We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 5. It shows that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table use was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
 
 ![Compare schemes](/imgs/table_use_by_table_size.png)
 
-**Figure 4**: Table use by table size given different **l<sub>max</sub>**
+**Figure 5**: Table use by table size given different **l<sub>max</sub>**
 
 #### Lookup Tables
 
-Given the small size of labels and the efficient coding of them inside buckets we can consider implementing all label calculation as a table lookup, speeding-up the process significantly. We had `d` buckets of size **LB<sub>size</sub>** as input and as output a modified bucket labels **LB<sub>size</sub>** and `d*k` positions for the item to be placed. Given this the lookup table size can be calculated as:
+Given the small size of labels and the efficient coding of them inside buckets we can consider implementing all label calculation as a table lookup, speeding-up the process significantly. We had `d` buckets of size **LB<sub>size</sub>** as input and as output a modified bucket label **LB<sub>size</sub>** and `d*k` positions for the item to be placed. Given this the lookup table size can be calculated as:
 
 **LT<sub>size</sub> = LB<sub>size</sub><sup>d</sup> * (LB<sub>size</sub> + log<sub>2</sub> dk)**
 
-For the `(2,4)`-scheme this is `4.5 kb`, witch is reasonable. Note that this implementation is incredible fast on practical computers, faster than `Random Walk` for the selection of the element to be kicked-out. Other efficient implementation without lookup tables is possible given the way we code the labels (using masked comparison on minimum and popcount for **Least-Loaded** and item selection).
+For the `(2,4)`-scheme this is `4.5 kb`, witch is reasonable. Note that this implementation is incredible fast on practical computers, faster than `Random Walk` for the selection of the element to be kicked-out. Other efficient implementations without lookup tables are possible given the way we code the labels (using masked comparison on minimum and `popcount` for **Least-Loaded** and item selection).
 
-We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table use in figure 5.
+We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table use in figure 6.
 
 ![Compare schemes](/imgs/insertion_time.png)
 
-**Figure 4**: Comparing insertion time for `(2,4)`-scheme with 10<sup>5</sup> elements
+**Figure 6**: Comparing insertion time for `(2,4)`-scheme with 10<sup>5</sup> elements
 
-The insertion time curve is similar to [[9]] and [[10]], where `LSA` is introduced. **LSA<sub>max</sub>** increases the point of inflection of the curve by `5%` (note when they both surpass 200 ns).
+The insertion time curve is similar to [[9]] and [[10]], where `LSA` is introduced. **LSA<sub>max</sub>** increases the point of inflection of the curve by `5%` (note when they both surpass 200 ns) with respect to `Random Walk`.
 
 For hash tables when the maximum number of items is known, inserting up-to the maximum load is reasonable. But if you don't know this beforehand then it is probably better to grow the table when reaching `94%` (in this scheme) by a small grow factor. Note that with high insertion time as provided by **LSA<sub>max</sub>** a small grow is feasible.
 
@@ -245,13 +258,13 @@ Given all experiments performed we can now propose optimal parameters for the di
 |         | **Table use (LSA<sub>max</sub>)** | 89.7% (**l<sub>max</sub>**=8) | 95.5% (**l<sub>max</sub>**=4) | 98.0% (**l<sub>max</sub>**=4) | 99.6% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (3+2)/2=**2.5** | (2+3)/3=**1.7** | (2+4)/4=**1.5** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>5x2</sup>x(5+2)/8=**896 bytes** | 2<sup>5x2</sup>x(5+3)/8=**1 kb** | 2<sup>6x2</sup>x(6+3)/8=**4.5 kb** | 2<sup>9x2</sup>x(9+4)/8=**416 kb** |
-|         | **l<sub>avg</sub>**   | 3.6 | 2.3 | 2.8 | 1.6 |
+|         | **Moves per bin**   | 1.5 | 0.9 | 1.4 | 0.5 |
 | **d=3** | **Table use (Limit)** | 98.8% | 99.7% | 99.9% | 99.999% |
 |         | **Table use (RW)**  | 97.6% | 99.1% | 99.5% | 99.9% |
 |         | **Table use (LSA<sub>max</sub>)**       | 98.1% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=2) | 99.998% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (2+2)/2=**2** | (2+3)/3=**1.7** | (1+4)/4=**1.25** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>4x3</sup>x(4+3)/8=**3.5 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>9x3</sup>x(9+5)/8=**224 mb** |
-|         | **l<sub>avg</sub>**   | 2.0 | 2.4 | 1.6 | 1.8 |
+|         | **Moves per bin**   | 0.6 | 1.1 | 0.5 | 0.7 |
 
 Table 3: Proposed parameters/characteristics of **LSA<sub>max</sub>** for `(d,k)`-cuckoo scheme
 
