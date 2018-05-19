@@ -968,19 +968,71 @@ void test_lmax()
 	printf("Time: %ums\n\n", (uint32_t)elapsed.count());
 
 	printf("------------------------------------------------------------\n");
-	printf("L_max          Table_Use          Labels   Total  Unnecesary\n");
-	printf("     (min_diff-  avg   +max_diff)          Moves    Moves\n");
+	printf("L_max          Table_Use           Labels   Total  Unnecesary\n");
+	printf("     (min_diff-  avg   +max_diff)           Moves    Moves\n");
 	printf("------------------------------------------------------------\n");
 	for (uint32_t l_max = 0; l_max < MAX_L; l_max++)
 	{
 		double avg_use = data[l_max].sum / MAX_REPETITIONS;
-		printf("%02u     %05.2f%% - %05.2f%% + %05.2f%%     %.2f   %.2f     %.2f\n"
+		printf("%02u     %05.2f%% - %05.2f%% + %05.2f%%     %05.2f   %.2f     %.2f\n"
 			, l_max + 1
 			, avg_use - data[l_max].min, avg_use, data[l_max].max - avg_use
 			, data[l_max].sum_labels*1. / MAX_REPETITIONS / CUCKOO_CAPACITY,
 			data[l_max].num_moves*1. / MAX_REPETITIONS / CUCKOO_CAPACITY,
 			data[l_max].unnecesary_moves*1. / MAX_REPETITIONS / CUCKOO_CAPACITY);
 	}
+}
+
+#define MAX_MOVES_STEPS 20
+void test_moves_done()
+{
+	double rates[MAX_MOVES_STEPS];
+	memset(rates, 0, sizeof(rates));
+	const uint32_t STEP = CUCKOO_CAPACITY / 10;// Iterate by 10%
+
+	// Seed with a real random value, if available
+	std::random_device good_random;
+	// Change first template parameter from 4 to other k to see other schemes
+	Cuckoo_1t<4, uint64_t, true> cuckoo_table(CUCKOO_CAPACITY, good_random());
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	for (uint32_t repeat = 0; repeat < MAX_REPETITIONS; repeat++)
+	{
+		std::mt19937_64 r(good_random());
+		cuckoo_table.Clear();
+		uint32_t num_moves = 0;
+
+		// Fill the table
+		while (true)
+		{
+			if (!cuckoo_table.Insert_LSA_max_k2(r(), 4))
+			{
+				double rate = cuckoo_table.GetTableUse();
+				while (num_moves < MAX_MOVES_STEPS)
+				{
+					rates[num_moves] += rate;
+					num_moves++;
+				}
+				break;
+			}
+			else if (cuckoo_table.num_moves > (num_moves + 1)*STEP)
+			{
+				rates[num_moves] += cuckoo_table.GetTableUse();
+				num_moves++;
+				if (num_moves >= MAX_MOVES_STEPS)
+					break;
+			}
+		}
+	}
+
+	auto end = std::chrono::high_resolution_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+	printf("Time: %ums\n\n", (uint32_t)elapsed.count());
+
+	// Show the histogram
+	for (int i = 0; i < MAX_MOVES_STEPS; i++)
+		printf("%.1f  %.2f\n", (i+1)/10., rates[i] / MAX_REPETITIONS);
 }
 
 #define MAX_REPETITIONS_ERRORS 10'000
@@ -1083,6 +1135,7 @@ void test_insertion_time()
 void main()
 {
 	test_lmax();
+	//test_moves_done();
 	//test_error();
 	//Create_Lookup_Table_2x4();
 	//test_insertion_time();
