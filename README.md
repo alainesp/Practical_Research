@@ -290,7 +290,7 @@ We run all the experiments with the one table implementation, although we don't 
 
 (*check raw document to see them*)
 
-[1]: url "Yossi Azar, Andrei Z. Broder, Anna R. Karlin, and Eli Upfal. Balanced allocations. SIAM J. Comput., 29(1):180–200, September 1999."
+[1]: http://epubs.siam.org/doi/abs/10.1137/S0097539795288490 "Yossi Azar, Andrei Z. Broder, Anna R. Karlin, and Eli Upfal. Balanced allocations. SIAM J. Comput., 29(1):180–200, September 1999."
 
 [2]: http://dx.doi.org/10.1016/j.jalgor.2003.12.002 "Rasmus Pagh and Flemming Friche Rodler. Cuckoo hashing. J. Algorithms, 51(2):122–144, May 2004"
 
@@ -314,6 +314,6 @@ We run all the experiments with the one table implementation, although we don't 
 
 [12]: https://arxiv.org/abs/1404.0286v1 "David Eppstein, Michael T. Goodrich, Michael Mitzenmacher, and Paweł Pszona. Wear Minimization for Cuckoo Hashing: How Not to Throw a Lot of Eggs into One Basket. 2014"
 
-[13]: url "Yuanyuan Sun, Yu Hua, Dan Feng, Ling Yang, Pengfei Zuo, Shunde Cao. MinCounter: An Efficient Cuckoo Hashing Scheme for Cloud Storage Systems. 2015"
+[13]: http://ieeexplore.ieee.org/abstract/document/7208292/ "Yuanyuan Sun, Yu Hua, Dan Feng, Ling Yang, Pengfei Zuo, Shunde Cao. MinCounter: An Efficient Cuckoo Hashing Scheme for Cloud Storage Systems. 2015"
 
-[14]: url "A. Kirsch, M. Mitzenmacher, and U Wieder. More robust hashing: Cuckoo hashing with a stash. SIAM Journal on Computing, vol. 39, no. 4, pp. 1543-1561, 2009."
+[14]: http://epubs.siam.org/doi/abs/10.1137/080728743 "A. Kirsch, M. Mitzenmacher, and U Wieder. More robust hashing: Cuckoo hashing with a stash. SIAM Journal on Computing, vol. 39, no. 4, pp. 1543-1561, 2009."
