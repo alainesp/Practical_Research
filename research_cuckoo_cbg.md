@@ -284,7 +284,7 @@ The positive case presents different challenges. We adopt a simple linear layout
 
 Table 6: Cache line cost for positive queries.
 
-We should point out that *plain blocked* cuckoo positive query average cost is **1.5** cache lines **IF** the bucket is contained completely inside a cache line, so the element size needs to be **16 or 8 bytes**. Note that our table can be smoothly used with larger elements and good performance.
+We should point out that *plain blocked* cuckoo positive query average cost is **1.5** cache lines **IF** the bucket is contained completely inside a cache line, so the element size needs to be **16 or 8 bytes**. Note that our table can seamless transition from medium elements to larger elements maintaining a good performance.
 
 The first thing to note is that positive query performance is significantly worse than negative query performance. This is because element size is higher than the 2 bytes we use to represent elements in negative queries. Also interesting is that if the element size isn't a power of two it may pay to pad each element to a power of two size.
 

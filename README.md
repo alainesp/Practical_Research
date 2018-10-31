@@ -4,21 +4,17 @@ Alain Espinosa <alainesp@gmail.com>
 
 `Published: May 16, 2018`
 
-`Last Edited: May 19, 2018` (version 0.2 - consider it *beta* version or *2nd DRAFT*)
+`Last Edited: Oct 31, 2018` (version 0.3 - consider it *beta* version or *3th DRAFT*)
 
-- Better strategies comparison.
-- Threshold checking.
-
-version 0.1 (Initial)
+**Note: In this paper we do not take into account the tie-breaking strategies by the lookup performance, only by the *load threshold*. We also used blocked-cuckoo when overlapping buckets may be better as in [[15]]** .
 
 ### Abstract
 
-Cuckoo hashing is one of the most popular hashing schemes (theoretically and practically), due to its simplicity, high table use and deterministic worst case access time. However current insertion algorithms had many problems. `BFS` reach very high table use but it is slow. State-of-the-art `Random Walk (RW)` is fast but when reaching high table use it degrades strongly. `LSA` is fast, reaching high table use but is **O(n<sup>2</sup>)** in the worst case, need an additional integer by element and is only defined for `(d,1)`-schemes. We modify the `LSA` algorithm for all the schemes (including the more practical `(2,k)`-schemes) obtaining worst case **O(l<sub>max</sub>n)** and amortized case **O(l<sub>max</sub>)** for the *constant* **l<sub>max</sub>** in the range `[8 - 2]` (more commonly `[4 - 2]`). We need only an additional `[2.5 - 1.1]` bits per element. We reach table use similar to `BFS` and in many cases `2%` better than `Random Walk`. Besides, the algorithm remains simple and can be implemented with high performance in current hardware.
+Cuckoo hashing is one of the most popular hashing schemes (theoretically and practically), due to its simplicity, high table load and deterministic worst case access time. However current insertion algorithms have many problems. `BFS` reach very high table load but it is slow. State-of-the-art `Random Walk (RW)` is fast but when reaching high table load it degrades strongly. `LSA` is fast, reaching high table load but is **O(n<sup>2</sup>)** in the worst case, needs an additional integer by element and is only defined for `(d,1)`-schemes. We modify the `LSA` algorithm for all the schemes (including the more practical `(2,k)`-schemes) obtaining worst case **O(l<sub>max</sub>n)** and amortized case **O(l<sub>max</sub>)** for the *constant* **l<sub>max</sub>** in the range `[8 - 2]` (more commonly `[4 - 2]`). We need only an additional `[2.5 - 1.1]` bits per element. We reach table load similar to `BFS` and in many cases `2%` better than `Random Walk`. Besides, the algorithm remains simple and can be implemented with high performance in current hardware.
 
 ## Introduction
 
-A hash table is a data structure that maps items to locations using a hash function. Ideally, the hash function should assign
-each possible item to a unique location, but this objective is rarely achievable in practice. Two or more items could be mapped to the same location resulting in a collision. A popular way to handle collisions is for the item to had multiple choices for his possible location [[1]]. This lowers the maximum load of a bucket from `log n / log log n` to `log log n` with high probability. Cuckoo hashing [[2]] draws on this idea. Each item is hashed to two locations. If both are used, then the insertion procedure moves previously-inserted items to their alternate location to make space for the new item. The insertion operation in cuckoo hashing is similar to the behavior of cuckoo birds in nature where they kick other eggs/birds out of their nests.
+A hash table is a data structure that maps items to locations using a hash function. Ideally, the hash function should assign each possible item to a unique location, but this objective is rarely achievable in practice. Two or more items could be mapped to the same location resulting in a collision. A popular way to handle collisions is for the item to had multiple choices for his possible location [[1]]. This lowers the maximum load of a bucket from `log n / log log n` to `log log n` with high probability. Cuckoo hashing [[2]] draws on this idea. Each item is hashed to two locations. If both are used, then the insertion procedure moves previously-inserted items to their alternate location to make space for the new item. The insertion operation in cuckoo hashing is similar to the behavior of cuckoo birds in nature where they kick other eggs/birds out of their nests.
 
 There are two natural ways to generalize cuckoo hashing. The first is to increase the number of hash function used from `2` to a general `d > 1`. The second is to increase the capacity of a memory location (bucket) so that it can store more than one item. We remark that it is also possible to have the buckets overlap. This was shown in [[3]] to carry some advantages, but henceforth we assume buckets are distinct. These schemes could of course be combined, hence we define the `(d,k)`-cuckoo scheme as one that uses `d` hash functions and a capacity of `k` in each bucket. In this terminology the standard cuckoo hashing scheme described previously is the `(2,1)`-scheme. The goal of these schemes is to increase the space utilization of the data structure from `50%` with vanilla cuckoo hashing.
 
@@ -28,9 +24,9 @@ There are two natural ways to generalize cuckoo hashing. The first is to increas
 | **d=3** | 91.8% | 98.8% | 99.7%  | 99.9%   | 99.999% |
 | **d=4** | 97.7% | 99.8% | 99.98% | 99.997% | 99.999% |
 
-Table 1: Maximum expected table use for `(d,k)`-cuckoo scheme
+Table 1: *Load threshold* for `(d,k)`-cuckoo scheme
 
-In practice an increase in `d` and `k` are not equivalent. Increasing `d` requires an additional computation of hash function and one more random memory probe which is likely to be a cache miss. On the other hand, a moderate increase in `k` may come with almost no cost at all if the items in the bucket share the same cache line. Thus, an appealing option in practice is setting `d = 2` and `k = 4` for fast lookup with high table use. When very high table use is needed (`>99%`), popular configurations are `(2,8)` or `(3,8)`.
+In practice an increase in `d` and `k` are not equivalent. Increasing `d` requires an additional computation of hash function and one more random memory probe which is likely to be a cache miss. On the other hand, a moderate increase in `k` may come with almost no cost at all if the items in the bucket share the same cache line. Thus, an appealing option in practice is setting `d = 2` and `k = 4` for fast lookup with high table load. When very high table load is needed (`>99%`), popular configurations are `(2,8)` or `(3,8)`.
 
 ## Related Work on Insertion Algorithms
 
@@ -40,8 +36,7 @@ One question left unanswered is how to insert an item. In the `(2,1)`-scheme an 
 
 Consider a bipartite graph where the left side is associated with items and the right side with memory locations. We place an edge `(u,b)` if `b` is one of `u’s d` valid memory locations. Further, if `u` is placed in `b` we orient the edge towards `u`, otherwise it is oriented towards `b`. An online insertion algorithm can scan this graph starting from `u` until it finds an empty memory location. A natural algorithm to scan this graph is a `BFS`, where one of the advantages is that the actual evictions (which presumable are a costly operation) would occur along a shortest path. For `(d,1)` [[4]] proves that the expected number of memory probes the `BFS` algorithm performs is some constant exponential in 1/ε.
 
-In [[5]] they propose and analyze the `(2,k)`-scheme, under the name blocked-cuckoo-hashing. Similarly, they identify the threshold and show that setting `k ≥ 1 + ln(1/ε) / (1 − ln 2)`
-is sufficient for a space utilization of `1/(1 + ε)`. While asymptotically this is similar to that of the `(d,1)`-scheme, as we mentioned before, in practice an increase in `k` is less costly than an increase of `d`. They show that if `k` is larger, but still `O(ln(1/ε))` then a `BFS` insertion algorithm runs in constant time on expectation, again with the constant exponential in `1/ε`.
+In [[5]] they propose and analyze the `(2,k)`-scheme, under the name blocked-cuckoo-hashing. Similarly, they identify the threshold and show that setting `k ≥ 1 + ln(1/ε) / (1 − ln 2)` is sufficient for a space utilization of `1/(1 + ε)`. While asymptotically this is similar to that of the `(d,1)`-scheme, as we mentioned before, in practice an increase in `k` is less costly than an increase of `d`. They show that if `k` is larger, but still `O(ln(1/ε))` then a `BFS` insertion algorithm runs in constant time on expectation, again with the constant exponential in `1/ε`.
 
 In practice a threshold `MAX_DEPTH` (usually `MAX_DEPTH=500`) is used to reduce the search space. Even with the threshold this method is expensive to perform for each item.
 
@@ -55,11 +50,11 @@ In practice a threshold `MAX_LENGTH_RW` (usually `MAX_LENGTH_RW=500`) is used to
 
 #### Wear Minimization
 
-In [[12]] they analyze the `(d,1)`-scheme where `d ≥ 3` adding a wear count to each bin. When inserting an item they select the bin with the least wear (breaking ties arbitrarily), and increases the wear of the bin. They show the wear is bound to `log log n + O(1)` after the insertion of `n` items into a table of size `C*n` for a suitable constant `C`. This constant `C` appears in practice important as they tested relatively small table usage (up to only `80%`).
+In [[12]] they analyze the `(d,1)`-scheme where `d ≥ 3` adding a wear count to each bin. When inserting an item they select the bin with the least wear (breaking ties arbitrarily), and increases the wear of the bin. They show the wear is bound to `log log n + O(1)` after the insertion of `n` items into a table of size `C*n` for a suitable constant `C`. This constant `C` appears in practice to be important as they tested relatively small table load (up to only `80%`).
 
 #### MinCounter
 
-In [[13]] they propose an algorithm that is essentially the same as `Wear Minimization`, but in the context of a cloud environment. They show experimentally that a counter of `5 bits` is enough in practice. They also use relatively small table use (up to `90%`).
+In [[13]] they propose an algorithm that is essentially the same as `Wear Minimization`, but in the context of a cloud environment. They show experimentally that a counter of `5 bits` is enough in practice. They also use relatively small table load (up to `90%`).
 
 #### Local Search Allocation (LSA)
 
@@ -136,7 +131,7 @@ We begin with the following lemma.
 
 **l<sub>orig</sub> > l<sub>2nd_min</sub>** which is false as **l<sub>orig</sub>** is selected as the minimum label. □
 
-For the worst case the algorithm visit each occupied bin at most **l<sub>max</sub>** times increasing his label by at least one (by **Lemma 1**) so the sum of all labels is at worst **l<sub>max</sub>*n** and the algorithm is **O(l<sub>max</sub>*n)**. For the amortized version the case is similar and gives **O(l<sub>max</sub>)**. Note that the difficult here is not the running time, but if the algorithm can reach high table usage and we respond affirmatively in the experiments.
+For the worst case the algorithm visit each occupied bin at most **l<sub>max</sub>** times increasing his label by at least one (by **Lemma 1**) so the sum of all labels is at worst **l<sub>max</sub>*n** and the algorithm is **O(l<sub>max</sub>*n)**. For the amortized version the case is similar and gives **O(l<sub>max</sub>)**. Note that the difficult here is not the running time, but if the algorithm can reach high table load and we respond affirmatively in the experiments.
 
 #### Tie-breaking strategies
 
@@ -166,13 +161,13 @@ Joining **lemma 1** and **lemma 2** we had the following corollary:
 
 **Corollary 1**: *The label of a bin increase at most by 2 at each iteration of LSA<sub>max</sub>*
 
-By using **lemma 2** we can code the labels inside a bucket as the minimum value plus a mask with one bit for each bin specifying the displacement with respect to the minimum. We use **LB<sub>size</sub> = log<sub>2</sub> l<sub>max</sub> + k** bits for a bucket instead of the **LB<sub>size</sub> = k log<sub>2</sub> l<sub>max</sub>** in the general case (*we can do better noting that the mask with all ones isn't a valid state, but we don't consider this in this work*). If we use the intra-bucket tie-breaking strategy **Left** we can reduce this number further, but it is a complex coding and probably not too flexible (consider removing an item for example). We continue using the more general **LB<sub>size</sub> = log<sub>2</sub> l<sub>max</sub> + k** on this work.
+By using **lemma 2** we can code the labels inside a bucket as the minimum value plus a mask with one bit for each bin specifying the displacement with respect to the minimum. We use **LB<sub>size</sub> = log<sub>2</sub> l<sub>max</sub> + k** bits for a bucket instead of the **LB<sub>size</sub> = k log<sub>2</sub> l<sub>max</sub>** in the general case (*we can do better noting that the mask with all ones isn't a valid state, but we don't consider this in this paper*). If we use the intra-bucket tie-breaking strategy **Left** we can reduce this number further, but it is a complex coding and probably not too flexible (consider removing an item for example). We continue using the more general **LB<sub>size</sub> = log<sub>2</sub> l<sub>max</sub> + k** on this work.
 
 ## Evaluation (Experiments)
 
-We do a number of experiments to validate our algorithm/model. All random numbers in our simulations are generated by `MT19937_64` generator of the standard C++ library. We store the 64-bit generated number as the value in the table. For `d = 2` we divide the 64-bit in two halves (`h2 = upper` and `h1 = lower`) and use them as the two hashes of the element. For `d > 2` we combine this halves as proposed in [[11]] to obtain `d` hashes: **h<sub>i</sub> = h1 + i*h2**. We repeat the experiment 1000 times and gives the average value, sometimes mentioned minimum and maximum. We implement cuckoo hashing using only one table instead of the `d` tables usually used.
+We do a number of experiments to validate our algorithm/model. All random numbers in our simulations are generated by `MT19937_64` generator of the standard C++ library. We store the 64-bit generated number as the value in the table. For `d = 2` we divide the 64-bit in two halves (`h2 = upper` and `h1 = lower`) and use them as the two hashes of the element. For `d > 2` we combine this halves as proposed in [[11]] to obtain `d` hashes: **h<sub>i</sub> = h1 + i*h2**. We repeat the experiment 1000 times and gives the average value, sometimes mentioned minimum and maximum. We implement cuckoo hashing using only one table instead of the `d` tables commonly used.
 
-We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</sup> bins. Table 2 shows different configurations ordered by table use. Strategy **XXX Global** means treat all `d*k` locations as independent applying **XXX** tie-breaking strategy. **LL XXX** first resolve inter-bucket ties by **Least-Loaded** and then apply **XXX** for intra-bucket ties.
+We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</sup> bins. Table 2 shows different configurations ordered by table load. Strategy **XXX Global** means treat all `d*k` locations as independent applying **XXX** tie-breaking strategy. **LL XXX** first resolve inter-bucket ties by **Least-Loaded** and then apply **XXX** for intra-bucket ties.
 
 | Strategy/l<sub>max</sub> | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 | :----------------------- | --- | --- | --- | --- | --- | --- | --- |
@@ -183,51 +178,51 @@ We fist try the tie-breaking strategies for the `(2,4)`-scheme with 10<sup>5</su
 | **Random Global**        | 28.6% ± 15.7% | 80.5% ± 15.3% | 96.2%  ± 2.8% | 97.9% ± 0.3% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0 ± 0.2%% |
 | **Left Global**          | 23.1% ± 11.5% | 71.6% ± 18.4% | 93.4% ± 4.6% | 97.5% ± 0.6% | 98.0% ± 0.2% | 98.0% ± 0.2% | 98.0% ± 0.2% |
 
-Table 2: Comparing tie-breaking strategies (cells contain average table use with variance)
+Table 2: Comparing tie-breaking strategies (cells contain average table load with variance)
 
-The **Least-Loaded (LL)** strategy provides the fastest convergence; but all converges quickly: at **l<sub>max</sub>=5** all strategies reach **98%** table use. Note that the variance converges to `0.2%` quickly too. For **l<sub>max</sub>=2** the difference between the best and worst strategy is `24%`. The difference between the best and random is `15%`. Even for **l<sub>max</sub>=3** the difference between the best and random is `2%` with is significant given the high table use. We conclude that a good tie-breaking strategy is important for an optimal convergence.
+The **Least-Loaded (LL)** strategy provides the fastest convergence; but all converges quickly: at **l<sub>max</sub>=5** all strategies reach **98%** table load. Note that the variance converges to `0.2%` quickly too. For **l<sub>max</sub>=2** the difference between the best and worst strategy is `24%`. The difference between the best and random is `15%`. Even for **l<sub>max</sub>=3** the difference between the best and random is `2%` with is significant given the high table load. We conclude that a good tie-breaking strategy is important for an optimal convergence.
 
-We are not only interested in table use, but also in other metrics. The average label **l<sub>avg</sub>** is one of them. We test different **l<sub>max</sub>** values in Figure 1 with the same `(2,4)`-scheme with 10<sup>5</sup> bins.
+We are not only interested in table load, but also in other metrics. The average label **l<sub>avg</sub>** is one of them. We test different **l<sub>max</sub>** values in Figure 1 with the same `(2,4)`-scheme with 10<sup>5</sup> bins.
 
 ![Work done](/imgs/strategies_work_done.png)
 
 **Figure 1**: Comparing average label by tie-breaking strategies
 
-We can see that **l<sub>avg</sub>** is similar for similar table use independently of the strategy. Also **l<sub>avg</sub>** depends linearly with **l<sub>max</sub>**.
+We can see that **l<sub>avg</sub>** is similar for similar table load independently of the strategy. Also **l<sub>avg</sub>** depends linearly with **l<sub>max</sub>**.
 
-We measure how efficient each strategy are by checking table use at average moves per item. An item is moved when is kicked-out of a position in a bucket. Figure 2 show data for the `(2,4)`-scheme with 10<sup>5</sup> bins.
+We measure how efficient each strategy are by checking table load at average moves per item. An item is moved when is kicked-out of a position in a bucket. Figure 2 show data for the `(2,4)`-scheme with 10<sup>5</sup> bins.
 
 ![Work done](/imgs/strategies_table_use_per_moves.png)
 
 **Figure 2**: Comparing work done by tie-breaking strategies
 
-Again the **Least-Loaded (LL)** strategy is the more efficient with **LL_Global** leading. The results are similar to table 2. We select the strategy **LL Left** because it had good convergence, is fast to calculate (no need to check alternate locations that may require a hash done) and may permit better coding of labels to reduce it's size. This strategy is used in all the remaining experiments.
+Again the **Least-Loaded (LL)** strategy is the more efficient with **LL_Global** leading. The results are similar to table 2. We select the strategy **LL Left** because it have good convergence, is fast to calculate (no need to check alternate locations that may require a hashing done) and may permit better coding of labels to reduce it's size. This strategy is used in all the remaining experiments.
 
 We now try common schemes of cuckoo hashing to see how they behaves in figure 3, again with 10<sup>5</sup> bins.
 
 ![Compare schemes](/imgs/compare_schemes.png)
 
-**Figure 3**: Table use of common cuckoo schemes given **l<sub>max</sub>**
+**Figure 3**: Table load of common cuckoo schemes given **l<sub>max</sub>**
 
-All schemes appear to exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table use is reached and then increases of **l<sub>max</sub>** don't increases the table use.
+All schemes appear to exhibit similar behavior: a `very small constant` (`<7`) **l<sub>max</sub>** when the maximum table load is reached and then increases of **l<sub>max</sub>** don't increases the table load.
 
-The variance (`average_value - minimum_value`) is similar to table 2, but we perform an additional experiment. We check how table use is distributed again distances to the average value. We repeat the process `10 000` times for the different schemes in figure 4. We use the **l<sub>max</sub>** values of table 3.
+The variance (`average_value - minimum_value`) is similar to table 2, but we perform an additional experiment. We check how table load is distributed again distances to the average value. We repeat the process `10 000` times for the different schemes in figure 4. We use the **l<sub>max</sub>** values of table 3.
 
 ![Schemes errors](/imgs/schemes_errors.png)
 
-**Figure 4**: Distribution of table use given distances to the average.
+**Figure 4**: Distribution of table load given distances to the average.
 
 From figure 4 it is implied that given a fixed value of `d` increasing `k` tighten the distribution around the average. It is a little perplexing that given a fixed `k` increasing `d` increases the number near average (`<0.1%`), but also expand the distribution increasing the numbers away from average (`≥0.3%`) in `(d,k=2,4)`-schemes. In any case the errors are minimal: for a distance `<0.5%` all schemes had probability `>99%` and many near `100%`. This is consistent with the existence of thresholds for random graphs.
 
 From this experiments we can produce the following proposition:
 
-**Proposition 1**: *For each `(d,k)`-scheme we can select a *very small constant* **l<sub>max</sub>** that with high probability results in table use similar to the best theoretically. Higher **l<sub>max</sub>** gives infinitesimal small increases in table use.*
+**Proposition 1**: *For each `(d,k)`-scheme we can select a *very small constant* **l<sub>max</sub>** that with high probability results in table load similar to the *load threshold*. Higher **l<sub>max</sub>** gives infinitesimal small increases in table load.*
 
-We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 5. It shows that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table use was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
+We are interested in how much *constant* **l<sub>max</sub>** really is, as it theoretically may depend on the table size `n`. We try the `(2,4)`-scheme with different table sizes in figure 5. It shows that for all practical choices of `n` (until 1 billion in this test) we can choose a *very small* **l<sub>max</sub>** (in this case `3` or `4`) that is practically independent of `n`. For example for **l<sub>max</sub> = 3** the drop in table load was `1%` when comparing 10<sup>2</sup> to 10<sup>9</sup>. With **l<sub>max</sub> = 4** the drop is only `0.45%`. We can expect to handle trillions of elements and continue to consider **l<sub>max</sub>** a *constant*.
 
 ![Compare schemes](/imgs/table_use_by_table_size.png)
 
-**Figure 5**: Table use by table size given different **l<sub>max</sub>**
+**Figure 5**: Table load by table size given different **l<sub>max</sub>**
 
 #### Lookup Tables
 
@@ -237,7 +232,7 @@ Given the small size of labels and the efficient coding of them inside buckets w
 
 For the `(2,4)`-scheme this is `4.5 kb`, witch is reasonable. Note that this implementation is incredible fast on practical computers, faster than `Random Walk` for the selection of the element to be kicked-out. Other efficient implementations without lookup tables are possible given the way we code the labels (using masked comparison on minimum and `popcount` for **Least-Loaded** and item selection).
 
-We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table use in figure 6.
+We implement the `(2,4)`-scheme with a lookup table and compare the performance with `Random Walk` for different table load in figure 6.
 
 ![Compare schemes](/imgs/insertion_time.png)
 
@@ -268,21 +263,21 @@ Given all experiments performed we can now propose optimal parameters for the di
 
 Table 3: Proposed parameters/characteristics of **LSA<sub>max</sub>** for `(d,k)`-cuckoo scheme
 
-For `(d=2,k=2-3-4)` **LSA<sub>max</sub>** is `2%` more space efficient than `Random Walk`. For the other configurations is still better but with a low margin. It's table use is similar to `BFS`. The label size is `≤ 2` bits per element in almost all schemes. The lookup table size **LT<sub>size</sub>** is reasonable for `(d=2,k=2-3-4) (d=3,k=2)`, providing a very fast implementation. The number of items moves (measured by **l<sub>avg</sub>**) is small in all cases. The more practical schemes `d=2` see the most benefit. Popular `(2,4)`-scheme is incredible attractive now for a practical implementation with `98%` table use, only `1.5` bit per element and lookup table of `4.5kb`.
+For `(d=2,k=2-3-4)` **LSA<sub>max</sub>** is `2%` more space efficient than `Random Walk`. For the other configurations is still better but with a low margin. It's table load is similar to `BFS`. The label size is `≤ 2` bits per element in almost all schemes. The lookup table size **LT<sub>size</sub>** is reasonable for `(d=2,k=2-3-4) (d=3,k=2)`, providing a very fast implementation. The number of items moves (measured by **l<sub>avg</sub>**) is small in all cases. The more practical schemes `d=2` see the most benefit. Popular `(2,4)`-scheme is incredible attractive now for a practical implementation with `98%` table use, only `1.5` bit per element and lookup table of `4.5kb`.
 
 All code and experimental data can be obtained in this GitHub repository.
 
 ## Conclusions and Future Work
 
-We have presented the new insertion algorithm for cuckoo hashing **LSA<sub>max</sub>**, that can be viewed as a more practical version of **LSA**. **LSA<sub>max</sub>** extends **LSA** to all `(d,k)`-schemes, providing worst case time **O(l<sub>max</sub>*n)** and amortized case **O(l<sub>max</sub>)** for **l<sub>max</sub>** in the range `[8 - 2]`. It uses a *very small* bound on label size **l<sub>max</sub>** that together with efficient coding reduces labels size to `[2.5 - 1.1]` bits per element. The resulting table use is similar to the more expensive `BFS` and the algorithm can be implemented with high performance.
+We have presented the new insertion algorithm for cuckoo hashing **LSA<sub>max</sub>**, that can be viewed as a more practical version of **LSA**. **LSA<sub>max</sub>** extends **LSA** to all `(d,k)`-schemes, providing worst case time **O(l<sub>max</sub>*n)** and amortized case **O(l<sub>max</sub>)** for **l<sub>max</sub>** in the range `[8 - 2]`. It uses a *very small* bound on label size **l<sub>max</sub>** that together with efficient coding reduces labels size to `[2.5 - 1.1]` bits per element. The resulting table load is similar to the more expensive `BFS` and the algorithm can be implemented with high performance.
 
-A theoretical analysis of why **l<sub>max</sub>** is *very small* remains open, and might provide additional insights on optimization. Also more sophisticated tie-breaking strategies can lead to better performance (For example for the `(2,4)`-scheme with **l<sub>max</sub>=3**, `10%` of item moves are in the same bucket. This may be calculated in advance).
+A theoretical analysis of why **l<sub>max</sub>** is *very small* remains open, and may provide additional insights on optimization. Also more sophisticated tie-breaking strategies can lead to better performance (For example for the `(2,4)`-scheme with **l<sub>max</sub>=3**, `10%` of item moves are in the same bucket. This may be calculated in advance).
 
-Although experiments with a stash [[14]] don't change results in any significant way, more robust terminating condition may be used. When **l<sub>max</sub>** is reached with still a small table use (bad luck) we can grow **l<sub>max</sub>**, or use a counter of the number of times **l<sub>max</sub>** is reached and use `Random Walk` here. We remark we don't found this necessary in our experiments.
+Although experiments with a stash [[14]] don't change results in any significant way, more robust terminating condition may be used. When **l<sub>max</sub>** is reached with still a small table load (bad luck) we can grow **l<sub>max</sub>**, or use a counter of the number of times **l<sub>max</sub>** is reached and use `Random Walk` here. We remark we don't found this necessary in our experiments.
 
-One possible avenue of work is to optimize for cloud use. Given the low movement of items, **LSA<sub>max</sub>** is a good candidate to a cloud implementation. Substituting `Perfect Hash Functions` and/or `Minimal Perfect Hash Functions` for big datasets may also be possible given the low movement of items, fast insertion time, high table use and very low additional memory of labels.
+One possible avenue of work is to optimize for cloud use. Given the low movement of items, **LSA<sub>max</sub>** is a good candidate to a cloud implementation. Substituting `Perfect Hash Functions` and/or `Minimal Perfect Hash Functions` for big datasets may also be possible given the low movement of items, fast insertion time, high table load and very low additional memory of labels.
 
-An observing reader may note that we don't mention the `Remove` operation. Many hash table use case don't need it, but if necessary may be implemented putting to `0` the removing item bin label and to `1` the other non-empty bins in the same bucket (this to remain within our lemmas and continue to use the efficient label coding). That this may work within our framework maintaining **l<sub>max</sub>** small is other open research direction to take.
+An observing reader may note that we don't mention the `Remove` operation. Many hash table use-cases don't need it, but if necessary may be implemented putting to `0` the removing item bin label and to `1` the other non-empty bins in the same bucket (this to remain within our lemmas and continue to use the efficient label coding). That this may work within our framework maintaining **l<sub>max</sub>** small is other open research direction to take.
 
 We run all the experiments with the one table implementation, although we don't see any reason not to, it would be nice if the `d` tables implementation is checked to work similarly under **LSA<sub>max</sub>**.
 
@@ -317,3 +312,5 @@ We run all the experiments with the one table implementation, although we don't 
 [13]: http://ieeexplore.ieee.org/abstract/document/7208292/ "Yuanyuan Sun, Yu Hua, Dan Feng, Ling Yang, Pengfei Zuo, Shunde Cao. MinCounter: An Efficient Cuckoo Hashing Scheme for Cloud Storage Systems. 2015"
 
 [14]: http://epubs.siam.org/doi/abs/10.1137/080728743 "A. Kirsch, M. Mitzenmacher, and U Wieder. More robust hashing: Cuckoo hashing with a stash. SIAM Journal on Computing, vol. 39, no. 4, pp. 1543-1561, 2009."
+
+[15]: research_cuckoo_cbg.md "Alain Espinosa. Cuckoo Breeding Ground - A Better Cuckoo Hash Table. 2018"
