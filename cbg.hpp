@@ -51,6 +51,7 @@
 
 #include <cstdint>
 #include <tuple>
+#include <assert.h>
 
 #if defined(_MSC_VER) && defined (_WIN64)
 #include <intrin.h>// should be part of all recent Visual Studio
@@ -672,9 +673,11 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoB : public HASHER,
 ///////////////////////////////////////////////////////////////////////////////
 // Basic implementation of CBG.
 //
-// TODO: Iterator, destructor call when removed, Memory_Allocator
+// TODO: Iterator, Handle move semantic of elems, destructor call when removed,
+//       Memory_Allocator
+// TODO: Consider put the HASHER here and not in DATA.
 ///////////////////////////////////////////////////////////////////////////////
-template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class EQ, class DATA, class METADATA, bool IS_SoA> class CBG_IMPL : private EQ, protected DATA
+template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_IMPL : private EQ, protected DATA
 {
 protected:
 	// Pointers -> found in DATA and METADATA through inheritance
@@ -683,8 +686,8 @@ protected:
 	size_t num_buckets;
 	// Parameters
 	float _max_load_factor = 0.9001f;// 90% -> When this load factor is reached the table is grow
-	float _grow_factor = 1.1f;// 10% -> How much to grow the table
-								// Constants
+	float _grow_factor = 1.2f;// 20% -> How much to grow the table
+	// Constants
 	static constexpr uint_fast16_t L_MAX = 7;
 	static constexpr size_t MIN_BINS_SIZE = 2 * NUM_ELEMS_BUCKET - 2;
 	static_assert(NUM_ELEMS_BUCKET >= 2 && NUM_ELEMS_BUCKET <= 4, "To use only 2 bits");
@@ -801,6 +804,12 @@ protected:
 		size_t empty_pos = SIZE_MAX;
 
 		//////////////////////////////////////////////////////////////////
+		// TODO: Try to Re-reverse buckets. Useful to put by default
+		// reversed buckets near the end of a cache line. Also needed when
+		// erasing elems.
+		// TODO: Consider using more sliding windows positions than only
+		// normal and reversal
+		//////////////////////////////////////////////////////////////////
 		// Then try to reverse the bucket
 		//////////////////////////////////////////////////////////////////
 		if (!METADATA::Is_Bucket_Reversed(bucket_pos) && bucket_pos >= NUM_ELEMS_BUCKET)
@@ -821,12 +830,13 @@ protected:
 				{
 					Reverse_Bucket(bucket_pos);
 
+					// TODO: Remove this code
 					uint16_t min1;
 					size_t pos1;
 					bucket_init = bucket_pos + (METADATA::Is_Bucket_Reversed(bucket_pos) ? (size_t(1) - NUM_ELEMS_BUCKET) : size_t(0));
 					std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
-					if (min1 == 0)
-						return pos1;
+					assert(min1 == 0);
+					return pos1;
 				}
 			}
 		}
@@ -840,7 +850,7 @@ protected:
 				size_t pos_elem = bucket_init + i;
 				if (!METADATA::Is_Item_In_Reverse_Bucket(pos_elem))
 				{
-					size_t bucket_elem = pos_elem - METADATA::Distance_to_Entry_Bin(pos_elem);
+					size_t bucket_elem = pos_elem - METADATA::Distance_to_Entry_Bin(pos_elem);// Faster Belong_to_Bucket(pos_elem)
 
 					if (bucket_elem != bucket_pos)
 					{
@@ -860,20 +870,21 @@ protected:
 							{
 								Reverse_Bucket(bucket_elem);
 
+								// TODO: Remove this code
 								uint16_t min1;
 								size_t pos1;
-								//bucket_init = Calculate_Position_Paged(bucket_pos, (Is_Reversed_Window(bucket_pos) ? (1 - NUM_ELEMS_BUCKET) : 0));
 								std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
-								if (min1 == 0)
-									return pos1;
-
-								break;
+								// TODO: Currently this assert don't hold. Fix it
+								assert(min1 == 0);
+								return pos1;
 							}
 						}
 					}
 				}
 			}
 
+		//////////////////////////////////////////////////////////////////
+		// TODO: Try to hopscotch in the other direction
 		//////////////////////////////////////////////////////////////////
 		// Then try to hopscotch for an empty space
 		//////////////////////////////////////////////////////////////////
@@ -892,7 +903,7 @@ protected:
 					{
 					}// TODO: Use a list with the options to not recalculate again
 
-						// Swap elements
+					// Swap elements
 					DATA::MoveElem(pos_blank, pos_swap);
 					METADATA::Update_Bin_At(pos_blank, METADATA::Distance_to_Entry_Bin(pos_swap) + (pos_blank - pos_swap), METADATA::Is_Item_In_Reverse_Bucket(pos_swap), METADATA::Get_Label(pos_swap), METADATA::Get_Hash(pos_swap));
 
@@ -915,6 +926,9 @@ protected:
 		if (new_num_buckets <= num_buckets)
 			return;
 
+		// TODO: Do the rehash with less additional memory.
+		//       Now it uses ~18% when the load_factor is 90%
+		// TODO: Consider saving the hash also to speed-up insertion.
 		std::vector<INSERT_TYPE> secondary_tmp;
 		secondary_tmp.reserve(std::max(1ull, num_elems / 8));// reserve 12.5%
 		bool need_rehash = true;
@@ -927,7 +941,7 @@ protected:
 			num_buckets = new_num_buckets;
 			new_num_buckets += std::max(1ull, new_num_buckets / 128ull);// add 0.8% if fails
 
-																		// Realloc data
+			// Realloc data
 			DATA::ReallocElems(num_buckets);
 			METADATA::ReallocMetadata(num_buckets);
 
@@ -1279,10 +1293,10 @@ protected:
 	}
 	__forceinline size_t find_position(const KEY_TYPE& elem) const noexcept
 	{
-		if (IS_SoA)
-			return find_position_SoA(elem);
+		if (IS_NEGATIVE)
+			return find_position_SoA(elem);// Negative queries prefered
 		else
-			return find_position_AoS(elem);
+			return find_position_AoS(elem);// Positive queries prefered
 	}
 
 public:
@@ -1349,8 +1363,8 @@ public:
 		return find_position(elem) != SIZE_MAX ? 1u : 0u;
 	}
 
-	// TODO: As currently implemented the performance may degrade
-	// if many erase operations are done
+	// TODO: As currently implemented the performance may
+	//       degrade if many erase operations are done.
 	uint32_t erase(const KEY_TYPE& elem) noexcept
 	{
 		size_t elem_pos = find_position(elem);
@@ -1362,15 +1376,11 @@ public:
 
 		return 0;
 	}
-
-	void shrink()
-	{
-		this->~CBG_IMPL();
-	}
 };
 
 // Map. Only added simple mapping operations.
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class EQ, class DATA, class METADATA, bool IS_SoA> class CBG_MAP_IMPL : public CBG_IMPL<NUM_ELEMS_BUCKET, std::pair<KEY, T>, KEY, T, EQ, DATA, METADATA, IS_SoA>
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_MAP_IMPL : 
+	public CBG_IMPL<NUM_ELEMS_BUCKET, std::pair<KEY, T>, KEY, T, EQ, DATA, METADATA, IS_NEGATIVE>
 {
 public:
 	CBG_MAP_IMPL() noexcept : CBG_IMPL()
@@ -1432,6 +1442,7 @@ public:
 	{}
 	Set_SoA(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of structs)
 template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoS :
@@ -1442,6 +1453,7 @@ public:
 	{}
 	Set_AoS(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of blocks)
 template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoB :
@@ -1452,6 +1464,7 @@ public:
 	{}
 	Set_AoB(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 ///////////////////////////////////////////////////////////////////////////////
 // CBG Maps
@@ -1465,6 +1478,7 @@ public:
 	{}
 	Map_SoA(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of structs)
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoS :
@@ -1475,6 +1489,7 @@ public:
 	{}
 	Map_AoS(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of blocks)
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoB :
@@ -1485,5 +1500,6 @@ public:
 	{}
 	Map_AoB(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
 	{}
+	// TODO: Add other constructors (Copy, Move, ...)
 };
 }// end namespace cbg
