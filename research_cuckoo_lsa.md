@@ -74,7 +74,7 @@ The algorithm comes with the additional cost of storing the labels. It is shown 
 
 ## Our Contribution
 
-We create the **LSA<sub>max</sub>** algorithm making a number of modifications to `LSA`. They reduce the worst case insertion time to **O(l<sub>max</sub>*n)** and the amortized running time to **O(l<sub>max</sub>)** for a *very small constant* **l<sub>max</sub>**. This maintaining the high table use of `BFS` and improving the rate compared to `Random Walk`. We show a way to code the labels to obtain `[2.5-1.1]` bits per element for different `(d,k)`-schemes. We show that given the low label size necessary we can speed-up the computation with lookup tables reducing significantly the insertion time.
+We create the **LSA<sub>max</sub>** algorithm making a number of modifications to `LSA`. They reduce the worst case insertion time to **O(l<sub>max</sub>*n)** and the amortized running time to **O(l<sub>max</sub>)** for a *very small constant* **l<sub>max</sub>**. This maintaining the high table load of `BFS` and improving the rate compared to `Random Walk`. We show a way to code the labels to obtain `[2.5-1.1]` bits per element for different `(d,k)`-schemes. We show that given the low label size necessary we can speed-up the computation with lookup tables reducing significantly the insertion time.
 
 #### LSA<sub>max</sub> Description
 
@@ -248,22 +248,22 @@ Given all experiments performed we can now propose optimal parameters for the di
 
 | d\k  |       Parameter       | k=2 | k=3 | k=4 | k=8 |
 | :--- | --------------------- | --- | --- | --- | --- |
-| **d=2** | **Table use (Limit)** | 89.7% | 95.9% | 98.0% | 99.8% |
-|         | **Table use (RW)**  | 87.1% | 93.9% | 96.5% | 99.2% |
-|         | **Table use (LSA<sub>max</sub>)** | 89.7% (**l<sub>max</sub>**=8) | 95.5% (**l<sub>max</sub>**=4) | 98.0% (**l<sub>max</sub>**=4) | 99.6% (**l<sub>max</sub>**=2) |
+| **d=2** | **Table load (Limit)** | 89.7% | 95.9% | 98.0% | 99.8% |
+|         | **Table load (RW)**  | 87.1% | 93.9% | 96.5% | 99.2% |
+|         | **Table load (LSA<sub>max</sub>)** | 89.7% (**l<sub>max</sub>**=8) | 95.5% (**l<sub>max</sub>**=4) | 98.0% (**l<sub>max</sub>**=4) | 99.6% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (3+2)/2=**2.5** | (2+3)/3=**1.7** | (2+4)/4=**1.5** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>5x2</sup>x(5+2)/8=**896 bytes** | 2<sup>5x2</sup>x(5+3)/8=**1 kb** | 2<sup>6x2</sup>x(6+3)/8=**4.5 kb** | 2<sup>9x2</sup>x(9+4)/8=**416 kb** |
 |         | **Moves per bin**   | 1.5 | 0.9 | 1.4 | 0.5 |
-| **d=3** | **Table use (Limit)** | 98.8% | 99.7% | 99.9% | 99.999% |
-|         | **Table use (RW)**  | 97.6% | 99.1% | 99.5% | 99.9% |
-|         | **Table use (LSA<sub>max</sub>)**       | 98.1% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=2) | 99.998% (**l<sub>max</sub>**=2) |
+| **d=3** | **Table load (Limit)** | 98.8% | 99.7% | 99.9% | 99.999% |
+|         | **Table load (RW)**  | 97.6% | 99.1% | 99.5% | 99.9% |
+|         | **Table load (LSA<sub>max</sub>)**       | 98.1% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=3) | 99.7% (**l<sub>max</sub>**=2) | 99.998% (**l<sub>max</sub>**=2) |
 |         | **LB<sub>size</sub> (bit/elem)** | (2+2)/2=**2** | (2+3)/3=**1.7** | (1+4)/4=**1.25** | (1+8)/8=**1.1** |
 |         | **LT<sub>size</sub>** | 2<sup>4x3</sup>x(4+3)/8=**3.5 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>5x3</sup>x(5+4)/8=**36 kb** | 2<sup>9x3</sup>x(9+5)/8=**224 mb** |
 |         | **Moves per bin**   | 0.6 | 1.1 | 0.5 | 0.7 |
 
 Table 3: Proposed parameters/characteristics of **LSA<sub>max</sub>** for `(d,k)`-cuckoo scheme
 
-For `(d=2,k=2-3-4)` **LSA<sub>max</sub>** is `2%` more space efficient than `Random Walk`. For the other configurations is still better but with a low margin. It's table load is similar to `BFS`. The label size is `≤ 2` bits per element in almost all schemes. The lookup table size **LT<sub>size</sub>** is reasonable for `(d=2,k=2-3-4) (d=3,k=2)`, providing a very fast implementation. The number of items moves (measured by **l<sub>avg</sub>**) is small in all cases. The more practical schemes `d=2` see the most benefit. Popular `(2,4)`-scheme is incredible attractive now for a practical implementation with `98%` table use, only `1.5` bit per element and lookup table of `4.5kb`.
+For `(d=2,k=2-3-4)` **LSA<sub>max</sub>** is `2%` more space efficient than `Random Walk`. For the other configurations is still better but with a low margin. It's table load is similar to `BFS`. The label size is `≤ 2` bits per element in almost all schemes. The lookup table size **LT<sub>size</sub>** is reasonable for `(d=2,k=2-3-4) (d=3,k=2)`, providing a very fast implementation. The number of items moves (measured by **l<sub>avg</sub>**) is small in all cases. The more practical schemes `d=2` see the most benefit. Popular `(2,4)`-scheme is incredible attractive now for a practical implementation with `98%` table load, only `1.5` bit per element and lookup table of `4.5kb`.
 
 All code and experimental data can be obtained in this GitHub repository.
 

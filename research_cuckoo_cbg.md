@@ -8,15 +8,13 @@ Alain Espinosa <alainesp@gmail.com>
 
 `Last Edited: Oct 31, 2018` (version 0.1 - consider it *alpha* version or *1st DRAFT*)
 
-version 0.1 (Initial)
-
 ### Abstract
 
 Cuckoo hashing is one of the most popular hashing schemes (theoretically and practically), due to its simplicity, high table load and deterministic worst case access time. However current algorithms are not very memory friendly. Positive lookups (key is in the table) and negative lookups (where it is not) on average access **1.5** and **2.0** buckets (memory regions), respectively, which results in **50** to **100%** more memory regions access than should be minimally necessary.
 
 This paper introduces a new hash table called **Cuckoo Breeding Ground (CBG)** based on cuckoo hashing, that access at **90%** table load **1.19, 1.09, 1.05** memory regions for negative queries and **1.26, 1.12, 1.07** memory regions for positive queries for windows of size `l = 2, 3, 4` respectively. The *load threshold* is increased to **98.20%, 99.86%** and **99.99%** for windows of size `l = 2, 3, 4` respectively, that compares favorably to **89.70%, 95.91%** and **98.04%** for the most common blocked-cuckoo. All this with a memory overhead of one byte per element or less and a relatively simple implementation.
 
-In many common instances our hash table performance at a table load of **99%** is only **15% - 25%** worse than theoretically possible, opening new use-cases for a highly memory efficient hash table.
+In many common instances our performance at a table load of **99%** is only **15% - 25%** worse than theoretically possible, opening new use-cases for a highly memory efficient hash table.
 
 ## Introduction
 
@@ -33,7 +31,7 @@ A hash table is a data structure that maps items to locations using a hash funct
 
 #### Common generalizations
 
-There are three natural ways to generalize cuckoo hashing. The first is to increase the number of hash function used from `2` to a general `d > 1`. The second is to increase the capacity of a memory location (bucket) `k ≥ 2` so that it can store more than one item. This is normally referred as blocked cuckoo and is the most usual option. The third is to have the buckets of size `l ≥ 2` overlap. We call this windowed cuckoo and it is explored in [[3]] and [[4]]. These schemes could of course be combined, hence we define the `B(d,k)`-cuckoo scheme as one that uses `d` hash functions and a capacity of `k` in each bucket. Similarly we can define the `W(d,l)`-cuckoo scheme as one that uses `d` hash functions and a window of size `l` for each bucket. In this terminology the standard cuckoo hashing scheme described previously is the `B(2,1)`-scheme. The goal of these schemes is to increase the load threshold of the data structure from `50%` with vanilla cuckoo hashing.
+There are three natural ways to generalize cuckoo hashing. The first is to increase the number of hash function used from `2` to a general `d ≥ 2`. The second is to increase the capacity of a memory location (bucket) `k ≥ 2` so that it can store more than one item. This is normally referred as blocked cuckoo and is the most usual option. The third is to have the buckets of size `l ≥ 2` overlap. We call this windowed cuckoo and it is explored in [[3]] and [[4]]. These schemes could of course be combined, hence we define the `B(d,k)`-cuckoo scheme as one that uses `d` hash functions and a capacity of `k` in each bucket. Similarly we can define the `W(d,l)`-cuckoo scheme as one that uses `d` hash functions and a window of size `l` for each bucket. In this terminology the standard cuckoo hashing scheme described previously is the `B(2,1)`-scheme. The goal of these schemes is to increase the load threshold of the data structure from `50%` with vanilla cuckoo hashing.
 
 In practice an increase in `d` and `k or l` are not equivalent. Increasing `d` requires an additional computation of hash function and one more random memory probe which is likely to be a cache miss. On the other hand, a moderate increase in `k or l` may come with almost no cost at all if the items in the bucket share the same cache line. Thus, an appealing option in practice is setting `d = 2` and `k = 4` for fast lookup with high table load. When very high table load is needed (`>99%`), popular configurations are `B(2,8)` or `B(3,8)`.
 

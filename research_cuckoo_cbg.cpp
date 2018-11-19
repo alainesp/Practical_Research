@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Research code on Cuckoo Breeding Ground hashtable
+// Research code on Cuckoo Breeding Ground hash table
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Written by Alain Espinosa <alainesp at gmail.com> in 2018 and placed
@@ -18,7 +18,7 @@
 // Windowed Cucko hashing implemented as only one table. Contains 
 // implementations for d=2 and l<=127
 //
-// This is for research only, see 'cgb.cpp' for production code.
+// This is for research only, see 'cbg.hpp' for production code.
 ///////////////////////////////////////////////////////////////////////////////
 template<uint32_t NUM_ELEMS_BUCKET> class CBG_Set
 {
