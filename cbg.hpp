@@ -51,7 +51,7 @@
 
 #include <cstdint>
 #include <tuple>
-#include <assert.h>
+#include <cassert>
 
 #if defined(_MSC_VER) && defined (_WIN64)
 #include <intrin.h>// should be part of all recent Visual Studio

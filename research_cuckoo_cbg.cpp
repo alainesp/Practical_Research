@@ -7,12 +7,13 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#include <stdint.h>
+#include <cstdint>
 #include <tuple>
 #include <chrono>
 #include <random>
 #include <memory>
 #include <unordered_set>
+#include <cassert>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Windowed Cucko hashing implemented as only one table. Contains 
@@ -105,6 +106,11 @@ private:
 	{
 		cache1[pos] |= 0x1'00'00;
 	}
+
+	__forceinline void MoveElem(uint32_t dest, uint32_t orig)
+	{
+		data1[dest] = data1[orig];
+	}
 	/////////////////////////////////////////////////////////////////////
 	// Insertion algorithm utilities
 	/////////////////////////////////////////////////////////////////////
@@ -145,35 +151,59 @@ private:
 	uint32_t Count_Elems_In_Bucket_Non_Reversed(uint32_t bucket_pos) const noexcept
 	{
 		uint32_t count = 0;
-		if (!Is_Item_In_Reverse_Bucket(bucket_pos) && 0 == GetFlagDistance(bucket_pos))
-			count = 1;
 
-		for (uint32_t i = 1; i < NUM_ELEMS_BUCKET; i++)
+		for (uint32_t i = 0; i < NUM_ELEMS_BUCKET; i++)
 		{
 			uint32_t pos = bucket_pos + i;
 
-			if (!Is_Item_In_Reverse_Bucket(pos) && i == GetFlagDistance(pos))
+			if (!Is_Item_In_Reverse_Bucket(pos) && i == GetFlagDistance(pos))// Faster Belong_to_Bucket(elem_pos)
 				count++;
 		}
 
 		return count;
 	}
+	std::pair<uint32_t, uint32_t> Count_Elems_In_Bucket_Outside_Range(uint32_t bucket_pos, uint32_t range_init) const noexcept
+	{
+		uint32_t count_outsize_range = 0;
+		uint32_t count = 0;
+
+		for (uint32_t i = 0; i < NUM_ELEMS_BUCKET; i++)
+		{
+			uint32_t pos = bucket_pos + i;
+
+			if (!Is_Item_In_Reverse_Bucket(pos) && i == GetFlagDistance(pos))// Faster Belong_to_Bucket(elem_pos)
+			{
+				count++;
+				if ((pos - range_init) >= NUM_ELEMS_BUCKET)// Faster check for: !(range_init <= pos < (range_init+NUM_ELEMS_BUCKET)))
+					count_outsize_range++;
+			}
+		}
+
+		return std::make_pair(count, count_outsize_range);
+	}
+	// TODO: Do this reversing maintaining elems near the entry bin
 	void Reverse_Bucket(uint32_t bucket_pos) noexcept
 	{
 		Set_Reversed(bucket_pos);
 
 		uint32_t j = NUM_ELEMS_BUCKET - 1;
-		for (uint32_t i = 0; i < NUM_ELEMS_BUCKET; i++)
+		for (uint32_t i = NUM_ELEMS_BUCKET - 1; i < NUM_ELEMS_BUCKET; i--)
 			if (Belong_to_Bucket(bucket_pos + i) == bucket_pos)// Elems belong to our bucket
 			{
-				for (; !Is_Empty(bucket_pos - j); j--)
+				for (; j < NUM_ELEMS_BUCKET && !Is_Empty(bucket_pos - j); j--)
 				{
 				}// Find empty space
-
-				Copy_Elem(bucket_pos - j, bucket_pos + i);
-				Set_Empty(bucket_pos + i);
-				data1[bucket_pos - j] = data1[bucket_pos + i];
-				UpdateFlag(bucket_pos - j, NUM_ELEMS_BUCKET - 1 - j, true);
+				if (j < NUM_ELEMS_BUCKET)
+				{
+					UpdateFlag(bucket_pos - j, NUM_ELEMS_BUCKET - 1 - j, true, Get_Label(bucket_pos + i));
+					Set_Empty(bucket_pos + i);
+					MoveElem(bucket_pos - j, bucket_pos + i);
+				}
+				else
+				{
+					assert(i == 0);
+					UpdateFlag(bucket_pos, NUM_ELEMS_BUCKET - 1, true, Get_Label(bucket_pos));
+				}
 			}
 	}
 	uint32_t Find_Empty_Pos_Hopscotch(uint32_t bucket_pos, uint32_t bucket_init) noexcept
@@ -192,21 +222,18 @@ private:
 				{
 					uint32_t count_elems = Count_Elems_In_Bucket_Non_Reversed(bucket_pos);
 
-					if (Belong_to_Bucket(bucket_pos) == bucket_pos)
+					// If we can reverse
+					if (count_empty > count_elems || (count_empty == count_elems && Belong_to_Bucket(bucket_pos) == bucket_pos))
 					{
-						if (count_empty > 0)
-							count_empty++;
-					}
+						if(count_elems)// Some elems
+							Reverse_Bucket(bucket_pos);
+						else// No elem
+							Set_Reversed(bucket_pos);
 
-					// TODO: Check this when only one element
-					if (count_empty > count_elems)
-					{
-						Reverse_Bucket(bucket_pos);
-
-						uint32_t min1, pos1;
-						bucket_init = bucket_pos + (Is_Reversed_Window(bucket_pos) ? (1 - NUM_ELEMS_BUCKET) : 0);
-						std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
-						if (min1 == 0)
+							uint32_t min1, pos1;
+							bucket_init = bucket_pos + (Is_Reversed_Window(bucket_pos) ? (1 - NUM_ELEMS_BUCKET) : 0);
+							std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
+							assert(min1 == 0);
 							return pos1;
 					}
 				}
@@ -228,26 +255,21 @@ private:
 							uint32_t count_empty = Count_Empty(bucket_elem + 1 - NUM_ELEMS_BUCKET);
 							if (count_empty)
 							{
-								uint32_t count_elems = Count_Elems_In_Bucket_Non_Reversed(bucket_elem);
+								size_t count_elems, count_outside;
+								std::tie(count_elems, count_outside) = Count_Elems_In_Bucket_Outside_Range(bucket_elem, bucket_init);
 
-								if (Belong_to_Bucket(bucket_elem) == bucket_elem)
-								{
-									if (count_empty > 0)
-										count_empty++;
-								}
+								assert(count_elems > count_outside);
+								assert(count_elems >= 1);
 
 								// TODO: Check this when only one element
-								if (count_empty >= count_elems)
+								if (count_outside < count_empty && (count_empty >= count_elems || (count_empty+1 == count_elems && Belong_to_Bucket(bucket_elem) == bucket_elem)))
 								{
 									Reverse_Bucket(bucket_elem);
 
 									uint32_t min1, pos1;
-									//bucket_init = Calculate_Position_Paged(bucket_pos, (Is_Reversed_Window(bucket_pos) ? (1 - NUM_ELEMS_BUCKET) : 0));
 									std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
-									if (min1 == 0)
-										return pos1;
-
-									break;
+									assert(min1 == 0);
+									return pos1;
 								}
 							}
 						}
@@ -258,7 +280,7 @@ private:
 		// Then try to hopscotch for an empty space
 		//////////////////////////////////////////////////////////////////
 		uint32_t max_dist_to_move = NUM_ELEMS_BUCKET - 1;
-		for (uint32_t i = 0; i <= max_dist_to_move; i++)
+		for (uint32_t i = 0; i <= max_dist_to_move && (bucket_init + i) < num_buckets; i++)
 		{
 			if (Is_Empty(bucket_init + i))
 			{
@@ -447,7 +469,8 @@ public:
 				return true;
 			}
 
-			if (num_elems * 10 > 9 * num_buckets)// > 90%
+			// TODO: Consider this
+			//if (num_elems * 10 > 9 * num_buckets)// > 90%
 			{
 				empty_pos = Find_Empty_Pos_Hopscotch(bucket2_pos, bucket2_init);
 
