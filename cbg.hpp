@@ -689,8 +689,9 @@ protected:
 	float _grow_factor = 1.2f;// 20% -> How much to grow the table
 	// Constants
 	static constexpr uint_fast16_t L_MAX = 7;
-	static constexpr size_t MIN_BINS_SIZE = 2 * NUM_ELEMS_BUCKET - 2;
+	static constexpr size_t MIN_BUCKETS_COUNT = 2 * NUM_ELEMS_BUCKET - 2;
 	static_assert(NUM_ELEMS_BUCKET >= 2 && NUM_ELEMS_BUCKET <= 4, "To use only 2 bits");
+	static_assert(std::is_unsigned<size_t>::value, "size_t is unsigned");
 
 	/////////////////////////////////////////////////////////////////////
 	// Utilities
@@ -732,6 +733,14 @@ protected:
 	/////////////////////////////////////////////////////////////////////
 	// Insertion algorithm utilities
 	/////////////////////////////////////////////////////////////////////
+	__forceinline void Update_Bin_At_Debug(size_t pos, size_t distance_to_base, bool is_reverse_item, uint_fast16_t label, size_t hash) noexcept
+	{
+		assert(distance_to_base < NUM_ELEMS_BUCKET);
+		assert(label <= L_MAX);
+		assert(pos < num_buckets);
+
+		METADATA::Update_Bin_At(pos, distance_to_base, is_reverse_item, label, hash);
+	}
 	std::pair<uint16_t, size_t> Calculate_Minimum(size_t bucket_pos) const noexcept
 	{
 		uint16_t minimum = METADATA::Get_Label(bucket_pos);
@@ -769,40 +778,64 @@ protected:
 	size_t Count_Elems_In_Bucket_Non_Reversed(size_t bucket_pos) const noexcept
 	{
 		size_t count = 0;
-		if (!METADATA::Is_Item_In_Reverse_Bucket(bucket_pos) && 0 == METADATA::Distance_to_Entry_Bin(bucket_pos))
-			count = 1;
 
-		for (size_t i = 1; i < NUM_ELEMS_BUCKET; i++)
+		for (size_t i = 0; i < NUM_ELEMS_BUCKET; i++)
 		{
 			size_t pos = bucket_pos + i;
 
-			if (!METADATA::Is_Item_In_Reverse_Bucket(pos) && i == METADATA::Distance_to_Entry_Bin(pos))
+			if (!METADATA::Is_Item_In_Reverse_Bucket(pos) && i == METADATA::Distance_to_Entry_Bin(pos))// Faster Belong_to_Bucket(elem_pos)
 				count++;
 		}
 
 		return count;
 	}
+	std::pair<size_t, size_t> Count_Elems_In_Bucket_Outside_Range(size_t bucket_pos, size_t range_init) const noexcept
+	{
+		size_t count_outsize_range = 0;
+		size_t count = 0;
+
+		for (size_t i = 0; i < NUM_ELEMS_BUCKET; i++)
+		{
+			size_t pos = bucket_pos + i;
+
+			if (!METADATA::Is_Item_In_Reverse_Bucket(pos) && i == METADATA::Distance_to_Entry_Bin(pos))// Faster Belong_to_Bucket(elem_pos)
+			{
+				count++;
+				if ((pos - range_init) >= NUM_ELEMS_BUCKET)// Faster check for: !(range_init <= pos < (range_init+NUM_ELEMS_BUCKET)))
+					count_outsize_range++;
+			}
+		}
+
+		return std::make_pair(count, count_outsize_range);
+	}
+	// TODO: Do this reversing maintaining elems near the entry bin
 	void Reverse_Bucket(size_t bucket_pos) noexcept
 	{
 		METADATA::Set_Bucket_Reversed(bucket_pos);
 
 		size_t j = NUM_ELEMS_BUCKET - 1;
-		for (size_t i = 0; i < NUM_ELEMS_BUCKET; i++)
+		for (size_t i = NUM_ELEMS_BUCKET - 1; i < NUM_ELEMS_BUCKET; i--)
 			if (Belong_to_Bucket(bucket_pos + i) == bucket_pos)// Elems belong to our bucket
 			{
-				for (; !METADATA::Is_Empty(bucket_pos - j); j--)
+				for (; j < NUM_ELEMS_BUCKET && !METADATA::Is_Empty(bucket_pos - j); j--)
 				{
 				}// Find empty space
-
-				METADATA::Update_Bin_At(bucket_pos - j, NUM_ELEMS_BUCKET - 1 - j, true, METADATA::Get_Label(bucket_pos + i), METADATA::Get_Hash(bucket_pos + i));
-				METADATA::Set_Empty(bucket_pos + i);
-				DATA::MoveElem(bucket_pos - j, bucket_pos + i);
+				if (j < NUM_ELEMS_BUCKET)
+				{
+					Update_Bin_At_Debug(bucket_pos - j, NUM_ELEMS_BUCKET - 1 - j, true, METADATA::Get_Label(bucket_pos + i), METADATA::Get_Hash(bucket_pos + i));
+					METADATA::Set_Empty(bucket_pos + i);
+					DATA::MoveElem(bucket_pos - j, bucket_pos + i);
+				}
+				else
+				{
+					assert(i == 0);
+					Update_Bin_At_Debug(bucket_pos, NUM_ELEMS_BUCKET - 1, true, METADATA::Get_Label(bucket_pos), METADATA::Get_Hash(bucket_pos));
+				}
 			}
 	}
+	// Reverse or Hopscotch for an empty bin. No change if no empty bin es found
 	size_t Find_Empty_Pos_Hopscotch(size_t bucket_pos, size_t bucket_init) noexcept
 	{
-		size_t empty_pos = SIZE_MAX;
-
 		//////////////////////////////////////////////////////////////////
 		// TODO: Try to Re-reverse buckets. Useful to put by default
 		// reversed buckets near the end of a cache line. Also needed when
@@ -819,16 +852,13 @@ protected:
 			{
 				size_t count_elems = Count_Elems_In_Bucket_Non_Reversed(bucket_pos);
 
-				if (Belong_to_Bucket(bucket_pos) == bucket_pos)
+				// If we can reverse
+				if (count_empty > count_elems || (count_empty == count_elems && Belong_to_Bucket(bucket_pos) == bucket_pos))
 				{
-					if (count_empty > 0)
-						count_empty++;
-				}
-
-				// TODO: Check this when only one element
-				if (count_empty > count_elems)
-				{
-					Reverse_Bucket(bucket_pos);
+					if(count_elems)// Some elems
+						Reverse_Bucket(bucket_pos);
+					else// No elem
+						METADATA::Set_Bucket_Reversed(bucket_pos);
 
 					// TODO: Remove this code
 					uint16_t min1;
@@ -854,19 +884,17 @@ protected:
 
 					if (bucket_elem != bucket_pos)
 					{
-						size_t count_empty = Count_Empty(bucket_elem + 1 - NUM_ELEMS_BUCKET);
+						size_t count_empty = Count_Empty(bucket_elem + 1 - NUM_ELEMS_BUCKET);// Clearly none of them are inside the bucket range
 						if (count_empty)
 						{
-							size_t count_elems = Count_Elems_In_Bucket_Non_Reversed(bucket_elem);
+							size_t count_elems, count_outside;
+							std::tie(count_elems, count_outside) = Count_Elems_In_Bucket_Outside_Range(bucket_elem, bucket_init);
 
-							if (Belong_to_Bucket(bucket_elem) == bucket_elem)
-							{
-								if (count_empty > 0)
-									count_empty++;
-							}
+							assert(count_elems > count_outside);
+							assert(count_elems >= 1);
 
 							// TODO: Check this when only one element
-							if (count_empty >= count_elems)
+							if (count_outside < count_empty && (count_empty >= count_elems || (count_empty+1 == count_elems && Belong_to_Bucket(bucket_elem) == bucket_elem)))
 							{
 								Reverse_Bucket(bucket_elem);
 
@@ -874,7 +902,6 @@ protected:
 								uint16_t min1;
 								size_t pos1;
 								std::tie(min1, pos1) = Calculate_Minimum(bucket_init);
-								// TODO: Currently this assert don't hold. Fix it
 								assert(min1 == 0);
 								return pos1;
 							}
@@ -905,7 +932,7 @@ protected:
 
 					// Swap elements
 					DATA::MoveElem(pos_blank, pos_swap);
-					METADATA::Update_Bin_At(pos_blank, METADATA::Distance_to_Entry_Bin(pos_swap) + (pos_blank - pos_swap), METADATA::Is_Item_In_Reverse_Bucket(pos_swap), METADATA::Get_Label(pos_swap), METADATA::Get_Hash(pos_swap));
+					Update_Bin_At_Debug(pos_blank, METADATA::Distance_to_Entry_Bin(pos_swap) + (pos_blank - pos_swap), METADATA::Is_Item_In_Reverse_Bucket(pos_swap), METADATA::Get_Label(pos_swap), METADATA::Get_Hash(pos_swap));
 
 					pos_blank = pos_swap;
 				}
@@ -917,7 +944,7 @@ protected:
 				max_dist_to_move = current_max_move;
 		}
 
-		return empty_pos;
+		return SIZE_MAX;// Not found
 	}
 
 	// Grow table
@@ -962,7 +989,8 @@ protected:
 					size_t hash0, hash1;
 					std::tie(hash0, hash1) = DATA::hash_elem(DATA::GetKey(i));
 					size_t bucket1_pos_init = fastrange(hash0, num_buckets);
-					bucket1_pos_init += METADATA::Is_Bucket_Reversed(bucket1_pos_init) ? (1ull - NUM_ELEMS_BUCKET) : 0;
+					bool is_bucket1_reversed = METADATA::Is_Bucket_Reversed(bucket1_pos_init);
+					bucket1_pos_init += is_bucket1_reversed ? (1ull - NUM_ELEMS_BUCKET) : 0;
 					bool item_is_moved = false;
 
 					// Try to insert primary
@@ -973,7 +1001,7 @@ protected:
 						std::tie(min1, pos1) = Calculate_Minimum(bucket1_pos_init);
 						if (min1 == 0)
 						{
-							METADATA::Update_Bin_At(pos1, pos1 - bucket1_pos_init, false, 1, hash1);
+							Update_Bin_At_Debug(pos1, pos1 - bucket1_pos_init, is_bucket1_reversed, 1, hash1);
 							// Put elem
 							DATA::MoveElem(pos1, i);
 							num_elems++;
@@ -1007,7 +1035,7 @@ protected:
 	size_t get_grow_size() const noexcept
 	{
 		// Last buckets will be reverted, so they need to be outsize the old buckets
-		size_t new_num_buckets = std::max(num_buckets + MIN_BINS_SIZE, size_t(num_buckets*_grow_factor));
+		size_t new_num_buckets = std::max(num_buckets + MIN_BUCKETS_COUNT, size_t(num_buckets*_grow_factor));
 		if (new_num_buckets < num_buckets)
 			new_num_buckets = SIZE_MAX;
 
@@ -1017,8 +1045,8 @@ protected:
 	// Constructors
 	CBG_IMPL() noexcept : num_elems(0), num_buckets(0), EQ(), DATA()
 	{}
-	CBG_IMPL(size_t expected_num_elems) noexcept : EQ(), DATA(std::max(MIN_BINS_SIZE, expected_num_elems)),
-		num_elems(0), num_buckets(std::max(MIN_BINS_SIZE, expected_num_elems))
+	CBG_IMPL(size_t expected_num_elems) noexcept : EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
+		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
 	{
 		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
 			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
@@ -1074,7 +1102,7 @@ protected:
 			// First bucket had free space
 			if (min1 == 0)
 			{
-				METADATA::Update_Bin_At(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
 				// Put elem
 				DATA::SaveElem(pos1, elem);
 				num_elems++;
@@ -1086,7 +1114,7 @@ protected:
 			{
 				is_reversed_bucket1 = METADATA::Is_Bucket_Reversed(bucket1_pos);
 				bucket1_init = bucket1_pos + (is_reversed_bucket1 ? (1 - NUM_ELEMS_BUCKET) : 0);
-				METADATA::Update_Bin_At(empty_pos, empty_pos - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(empty_pos, empty_pos - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
 
 				// Put elem
 				DATA::SaveElem(empty_pos, elem);
@@ -1100,7 +1128,7 @@ protected:
 			if (min2 == 0)
 			{
 				METADATA::Set_Unlucky_Bucket(bucket1_pos);
-				METADATA::Update_Bin_At(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
 				// Put elem
 				DATA::SaveElem(pos2, elem);
 				num_elems++;
@@ -1116,7 +1144,7 @@ protected:
 					METADATA::Set_Unlucky_Bucket(bucket1_pos);
 					is_reversed_bucket2 = METADATA::Is_Bucket_Reversed(bucket2_pos);
 					bucket2_init = bucket2_pos + (is_reversed_bucket2 ? (1 - NUM_ELEMS_BUCKET) : 0);
-					METADATA::Update_Bin_At(empty_pos, empty_pos - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+					Update_Bin_At_Debug(empty_pos, empty_pos - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
 
 					// Put elem
 					DATA::SaveElem(empty_pos, elem);
@@ -1131,7 +1159,7 @@ protected:
 
 			if (min1 <= min2)// Selected pos in first bucket
 			{
-				METADATA::Update_Bin_At(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
 				// Put elem
 				INSERT_TYPE victim = DATA::GetElem(pos1);
 				DATA::SaveElem(pos1, elem);
@@ -1140,7 +1168,7 @@ protected:
 			else
 			{
 				METADATA::Set_Unlucky_Bucket(bucket1_pos);
-				METADATA::Update_Bin_At(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
 				// Put elem
 				INSERT_TYPE victim = DATA::GetElem(pos2);
 				DATA::SaveElem(pos2, elem);
