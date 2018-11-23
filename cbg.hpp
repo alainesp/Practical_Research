@@ -39,6 +39,11 @@
 // - "Array of Blocks" (AoB): Metadata overhead of one byte. Each metadata, 
 //    keys and values are in the same array on blocks. Don't use unaligned
 //    memory access but performance suffers. Intended for positive queries.
+//
+// Namespace 'cbg::hashing' contains non-cryptographic hashing based on t1ha2
+// [https://github.com/leo-yuriev/t1ha]. This is for 64 bits only. For 32 bits
+// we need a different hash function for performance reason.
+//
 ///////////////////////////////////////////////////////////////////////////////
 // NUM_ELEMS_BUCKET parameter selection:
 //
@@ -49,17 +54,303 @@
 
 #pragma once
 
+// Disable assert() and obtain best performance
+//#define NDEBUG
+
 #include <cstdint>
 #include <tuple>
 #include <cassert>
+#include <random>
 
 #if defined(_MSC_VER) && defined (_WIN64)
 #include <intrin.h>// should be part of all recent Visual Studio
 #pragma intrinsic(_umul128)
+#pragma intrinsic(__umulh)
+#define mul_64x64_128(a, b, ph) _umul128(a, b, ph)
+#define rot64(v, s) _rotr64(v, s)
 #endif // defined(_MSC_VER) && defined (_WIN64)
 
 namespace cbg
 {
+///////////////////////////////////////////////////////////////////////////////
+// Non-cryptographic hashing for hashtables. A clearer C++ version of t1ha2
+///////////////////////////////////////////////////////////////////////////////
+namespace hashing
+{
+namespace t1ha2_internal
+{
+///////////////////////////////////////////////////////////////////////////////
+// Data Access
+///////////////////////////////////////////////////////////////////////////////
+struct x86//Little Endian, Fast unaligned memory access
+{
+	static __forceinline uint64_t fetch64(const void* v)
+	{
+		return *((const uint64_t*)v);
+	}
+	static __forceinline uint64_t tail64(const void *v, size_t tail)
+	{
+		// On some systems (e.g. x86) we can perform a 'oneshot' read,
+		// which is a little bit faster.
+		const unsigned offset = (8 - tail) & 7;
+		const unsigned shift = offset << 3;
+		return fetch64(v) & (UINT64_MAX >> shift);
+	}
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// t1ha2 base
+///////////////////////////////////////////////////////////////////////////////
+template<class DATA_ACCESS = x86> struct t1ha2_IMPL : public DATA_ACCESS
+{
+	// 'Magic' primes
+	static constexpr uint64_t prime_0 = UINT64_C(0xEC99BF0D8372CAAB);
+	static constexpr uint64_t prime_1 = UINT64_C(0x82434FE90EDCEF39);
+	static constexpr uint64_t prime_2 = UINT64_C(0xD4F06DB99D67BE4B);
+	static constexpr uint64_t prime_3 = UINT64_C(0xBD9CACC22C6E9571);
+	static constexpr uint64_t prime_4 = UINT64_C(0x9C06FAF4D023E3AB);
+	static constexpr uint64_t prime_5 = UINT64_C(0xC060724A8424F345);
+	static constexpr uint64_t prime_6 = UINT64_C(0xCB5AF53AE3AAAC31);
+
+	uint64_t seed;
+
+	t1ha2_IMPL() noexcept : DATA_ACCESS()
+	{
+		// Seed with a real random value, if available
+		std::random_device good_random;
+		seed = static_cast<uint64_t>(good_random()) | static_cast<uint64_t>(good_random()) << 32;
+	}
+	t1ha2_IMPL(uint64_t seed) noexcept : DATA_ACCESS(), seed(seed)
+	{}
+
+	uint64_t operator()(const void* data, size_t length) const noexcept
+	{
+		// Init a,b
+		uint64_t a = seed;
+		uint64_t b = length;
+
+		if (length > 32)
+		{
+			// Init c,d
+			uint64_t c = rot64(length, 23) + ~seed;
+			uint64_t d = ~length + rot64(seed, 19);
+
+			// T1HA2_LOOP
+			const void* detent = (const uint8_t*)data + length - 31;
+			do {
+				const uint64_t* v = (const uint64_t*)data;
+				data = (const uint64_t*)data + 4;
+				//prefetch(data);
+				// T1HA2_UPDATE
+				const uint64_t w0 = DATA_ACCESS::fetch64(v + 0);
+				const uint64_t w1 = DATA_ACCESS::fetch64(v + 1);
+				const uint64_t w2 = DATA_ACCESS::fetch64(v + 2);
+				const uint64_t w3 = DATA_ACCESS::fetch64(v + 3);
+
+				const uint64_t d02 = w0 + rot64(w2 + d, 56);
+				const uint64_t c13 = w1 + rot64(w3 + c, 19);
+				d ^= b + rot64(w1, 38);
+				c ^= a + rot64(w0, 57);
+				b ^= prime_6 * (c13 + w2);
+				a ^= prime_5 * (d02 + w3);
+			} while (data < detent);
+
+			// Squash
+			a ^= prime_6 * (c + rot64(d, 23));
+			b ^= prime_5 * (rot64(c, 19) + d);
+			length &= 31;
+		}
+		// T1HA2_TAIL_AB
+		const uint64_t *v = (const uint64_t *)data;
+		uint64_t l, h;
+		switch (length)
+		{
+		default:// mixup64
+			a ^= mul_64x64_128(b + DATA_ACCESS::fetch64(v++), prime_4, &h);
+			b += h;
+			//[[fallthrough]];
+		case 24: case 23: case 22: case 21: case 20: case 19: case 18: case 17:
+			// mixup64
+			b ^= mul_64x64_128(a + DATA_ACCESS::fetch64(v++), prime_3, &h);
+			a += h;
+			//[[fallthrough]];
+		case 16: case 15: case 14: case 13: case 12: case 11: case 10: case 9:
+			// mixup64
+			a ^= mul_64x64_128(b + DATA_ACCESS::fetch64(v++), prime_2, &h);
+			b += h;
+			//[[fallthrough]];
+		case 8: case 7: case 6: case 5: case 4: case 3: case 2: case 1:
+			// mixup64
+			b ^= mul_64x64_128(a + DATA_ACCESS::tail64(v, length), prime_1, &h);
+			a += h;
+			//[[fallthrough]];
+		case 0: break;
+		}
+		// final64(a, b);
+		uint64_t x = (a + rot64(b, 41)) * prime_0;
+		uint64_t y = (rot64(a, 23) + b) * prime_6;
+		l = mul_64x64_128(x ^ y, prime_5, &h);
+		return l ^ h;
+	}
+};
+}// end namespace t1ha2_internal
+
+///////////////////////////////////////////////////////////////////////////////
+// Common t1ha2 for general use
+///////////////////////////////////////////////////////////////////////////////
+template<class T, class DATA_ACCESS = t1ha2_internal::x86> struct t1ha2 : public t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>
+{
+	t1ha2() noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>()
+	{}
+	t1ha2(uint64_t seed) noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>(seed)
+	{}
+
+	template<size_t length = sizeof(T)> uint64_t operator()(const T& elem) const noexcept
+	{
+		const uint64_t* v = (uint64_t*)(&elem);
+		// Init a,b
+		uint64_t a = seed;
+		uint64_t b = length;
+
+		if (length > 32)
+		{
+			// Init c,d
+			uint64_t c = rot64(length, 23) + ~seed;
+			uint64_t d = ~length + rot64(seed, 19);
+
+			// T1HA2_LOOP
+			const void* detent = (const uint8_t*)v + length - 31;
+			do {
+				v += 4;
+				//prefetch(v);
+				// T1HA2_UPDATE
+				const uint64_t w0 = DATA_ACCESS::fetch64(v + 0);
+				const uint64_t w1 = DATA_ACCESS::fetch64(v + 1);
+				const uint64_t w2 = DATA_ACCESS::fetch64(v + 2);
+				const uint64_t w3 = DATA_ACCESS::fetch64(v + 3);
+
+				const uint64_t d02 = w0 + rot64(w2 + d, 56);
+				const uint64_t c13 = w1 + rot64(w3 + c, 19);
+				d ^= b + rot64(w1, 38);
+				c ^= a + rot64(w0, 57);
+				b ^= prime_6 * (c13 + w2);
+				a ^= prime_5 * (d02 + w3);
+			} while (v < detent);
+
+			// Squash
+			a ^= prime_6 * (c + rot64(d, 23));
+			b ^= prime_5 * (rot64(c, 19) + d);
+		}
+		// T1HA2_TAIL_AB
+		uint64_t l, h;
+		switch (length & 31)
+		{
+		default:// mixup64
+			a ^= mul_64x64_128(b + DATA_ACCESS::fetch64(v++), prime_4, &h);
+			b += h;
+			//[[fallthrough]];
+		case 24: case 23: case 22: case 21: case 20: case 19: case 18: case 17:
+			// mixup64
+			b ^= mul_64x64_128(a + DATA_ACCESS::fetch64(v++), prime_3, &h);
+			a += h;
+			//[[fallthrough]];
+		case 16: case 15: case 14: case 13: case 12: case 11: case 10: case 9:
+			// mixup64
+			a ^= mul_64x64_128(b + DATA_ACCESS::fetch64(v++), prime_2, &h);
+			b += h;
+			//[[fallthrough]];
+		case 8: case 7: case 6: case 5: case 4: case 3: case 2: case 1:
+			// mixup64
+			b ^= mul_64x64_128(a + DATA_ACCESS::tail64(v, length & 31), prime_1, &h);
+			a += h;
+			//[[fallthrough]];
+		case 0: break;
+		}
+		// final64(a, b);
+		uint64_t x = (a + rot64(b, 41)) * prime_0;
+		uint64_t y = (rot64(a, 23) + b) * prime_6;
+		l = mul_64x64_128(x ^ y, prime_5, &h);
+		return l ^ h;
+	}
+};
+// Partial specialization
+template<class DATA_ACCESS> struct t1ha2<std::string, DATA_ACCESS> : public t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>
+{
+	t1ha2() noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>()
+	{}
+	t1ha2(uint64_t seed) noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>(seed)
+	{}
+
+	uint64_t operator()(const std::string& data) const noexcept
+	{
+		return operator(data.c_str(), data.length);
+	}
+};
+template<class DATA_ACCESS> struct t1ha2<char*, DATA_ACCESS> : public t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>
+{
+	t1ha2() noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>()
+	{}
+	t1ha2(uint64_t seed) noexcept : t1ha2_internal::t1ha2_IMPL<DATA_ACCESS>(seed)
+	{}
+
+	uint64_t operator()(const char* data) const noexcept
+	{
+		return operator(data, strlen(data));
+	}
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// t1ha2 for use with CBG
+///////////////////////////////////////////////////////////////////////////////
+template<class T, class DATA_ACCESS = t1ha2_internal::x86> struct t1ha2_pair : public t1ha2<T, DATA_ACCESS>
+{
+	t1ha2_pair() noexcept : t1ha2<T, DATA_ACCESS>()
+	{}
+	t1ha2_pair(uint64_t seed) noexcept : t1ha2<T, DATA_ACCESS>(seed)
+	{}
+
+	// TODO: Hashtable capacity of more than 32 bits may gives problems.
+	//       Cuckoo filter [[1]] demostrates that cuckoo algorithm works
+	//       similarly with 5-6 bits for the secondary hash than with
+	//       two fully independent hash functions.
+	//
+	// [1] 2014 - "Cuckoo Filter Practically Better Than Bloom"
+	// by Bin Fan, Dave Andersen, Michael Kaminsky and  Michael D. Mitzenmacher 
+	std::pair<size_t,size_t> operator()(const T& elem) const noexcept
+	{
+		uint64_t hash = t1ha2::operator()(elem);
+		return std::make_pair(hash, rot64(hash, 32));
+	}
+};
+// Partial specialization
+template<class DATA_ACCESS> struct t1ha2_pair<std::string, DATA_ACCESS> : public t1ha2<std::string, DATA_ACCESS>
+{
+	t1ha2_pair() noexcept : t1ha2()
+	{}
+	t1ha2_pair(uint64_t seed) noexcept : t1ha2(seed)
+	{}
+
+	std::pair<size_t, size_t> operator()(const std::string& data) const noexcept
+	{
+		uint64_t hash = operator(data.c_str(), data.length);
+		return std::make_pair(hash, rot64(hash, 32));
+	}
+};
+template<class DATA_ACCESS> struct t1ha2_pair<char*, DATA_ACCESS> : public t1ha2<char*, DATA_ACCESS>
+{
+	t1ha2_pair() noexcept : t1ha2()
+	{}
+	t1ha2_pair(uint64_t seed) noexcept : t1ha2(seed)
+	{}
+
+	std::pair<size_t, size_t> operator()(const char* data) const noexcept
+	{
+		uint64_t hash = operator(data, strlen(data));
+		return std::make_pair(hash, rot64(hash, 32));
+	}
+};
+}// end namespace hashing
+
 // Internal implementations
 namespace cbg_internal
 {
@@ -656,8 +947,9 @@ protected:
 	// Constants
 	static constexpr uint_fast16_t L_MAX = 7;
 	static constexpr size_t MIN_BUCKETS_COUNT = 2 * NUM_ELEMS_BUCKET - 2;
+
 	static_assert(NUM_ELEMS_BUCKET >= 2 && NUM_ELEMS_BUCKET <= 4, "To use only 2 bits");
-	static_assert(std::is_unsigned<size_t>::value, "size_t is unsigned");
+	static_assert(std::is_unsigned<size_t>::value, "size_t required to be unsigned");
 
 	/////////////////////////////////////////////////////////////////////
 	// Utilities
@@ -708,7 +1000,7 @@ protected:
 		assert(distance_to_base < NUM_ELEMS_BUCKET);
 		assert(label <= L_MAX);
 		assert(pos < num_buckets);
-
+		
 		METADATA::Update_Bin_At(pos, distance_to_base, is_reverse_item, label, hash);
 	}
 	std::pair<uint16_t, size_t> Calculate_Minimum(size_t bucket_pos) const noexcept
@@ -1018,6 +1310,7 @@ protected:
 	CBG_IMPL(size_t expected_num_elems) noexcept : HASHER(), EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
 		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
 	{
+		// Last buckets are always reversed
 		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
 			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
 	}
@@ -1105,7 +1398,7 @@ protected:
 				return true;
 			}
 
-			if (num_elems * 10 > 9 * num_buckets)// > 90%
+			//if (num_elems * 10 > 9 * num_buckets)// > 90%
 			{
 				empty_pos = Find_Empty_Pos_Hopscotch(bucket2_pos, bucket2_init);
 
@@ -1432,7 +1725,7 @@ public:
 // CBG Sets
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_SoA :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_SoA :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_SoA<T>, cbg_internal::MetadataLayout_SoA, true>
 {
 public:
@@ -1443,7 +1736,7 @@ public:
 	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of structs)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoS :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_AoS :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoS<T>, cbg_internal::MetadataLayout_AoS<sizeof(T)>, false>
 {
 public:
@@ -1454,7 +1747,7 @@ public:
 	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of blocks)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoB :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_AoB :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoB<T>, cbg_internal::MetadataLayout_AoB<alignof(T), cbg_internal::BlockKey<T>>, false>
 {
 public:
@@ -1468,7 +1761,7 @@ public:
 // CBG Maps
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_SoA :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_SoA :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_SoA<KEY, T>, cbg_internal::MetadataLayout_SoA, true>
 {
 public:
@@ -1479,7 +1772,7 @@ public:
 	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of structs)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoS :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_AoS :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoS<KEY, T>, cbg_internal::MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>, false>
 {
 public:
@@ -1490,7 +1783,7 @@ public:
 	// TODO: Add other constructors (Copy, Move, ...)
 };
 // (Array of blocks)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoB :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_AoB :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoB<KEY, T>, cbg_internal::MetadataLayout_AoB<cbg_internal::MaxAlignOf<KEY, T>::BLOCK_SIZE, cbg_internal::BlockMap<KEY, T>>, false>
 {
 public:
