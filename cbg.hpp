@@ -152,14 +152,14 @@ struct MetadataLayout_SoA
 	}
 };
 // Data layouts
-template<class KEY, class HASHER> struct KeyLayout_SoA : public HASHER, public MetadataLayout_SoA
+template<class KEY> struct KeyLayout_SoA : public MetadataLayout_SoA
 {
 	KEY* keys;
 
 	// Constructors
-	KeyLayout_SoA() noexcept : keys(nullptr), HASHER(), MetadataLayout_SoA()
+	KeyLayout_SoA() noexcept : keys(nullptr), MetadataLayout_SoA()
 	{}
-	KeyLayout_SoA(size_t num_buckets) noexcept : HASHER(), MetadataLayout_SoA(num_buckets)
+	KeyLayout_SoA(size_t num_buckets) noexcept : MetadataLayout_SoA(num_buckets)
 	{
 		keys = (KEY*)malloc(num_buckets * sizeof(KEY));
 	}
@@ -182,6 +182,10 @@ template<class KEY, class HASHER> struct KeyLayout_SoA : public HASHER, public M
 	{
 		return keys[pos];
 	}
+	__forceinline const KEY& GetKeyFromValue(const KEY& elem) const noexcept
+	{
+		return elem;
+	}
 	__forceinline KEY GetElem(size_t pos) const noexcept
 	{
 		return keys[pos];
@@ -195,15 +199,8 @@ template<class KEY, class HASHER> struct KeyLayout_SoA : public HASHER, public M
 	{
 		keys = (KEY*)realloc(keys, new_num_buckets * sizeof(KEY));
 	}
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
 };
-template<class KEY, class T, class HASHER> struct MapLayout_SoA : public HASHER, public MetadataLayout_SoA
+template<class KEY, class T> struct MapLayout_SoA : public MetadataLayout_SoA
 {
 	using INSERT_TYPE = std::pair<KEY, T>;
 
@@ -211,9 +208,9 @@ template<class KEY, class T, class HASHER> struct MapLayout_SoA : public HASHER,
 	T* data;
 
 	// Constructors
-	MapLayout_SoA() noexcept : keys(nullptr), data(nullptr), HASHER(), MetadataLayout_SoA()
+	MapLayout_SoA() noexcept : keys(nullptr), data(nullptr), MetadataLayout_SoA()
 	{}
-	MapLayout_SoA(size_t num_buckets) noexcept : HASHER(), MetadataLayout_SoA(num_buckets)
+	MapLayout_SoA(size_t num_buckets) noexcept : MetadataLayout_SoA(num_buckets)
 	{
 		keys = (KEY*)malloc(num_buckets * sizeof(KEY));
 		data = (T*)malloc(num_buckets * sizeof(T));
@@ -241,6 +238,10 @@ template<class KEY, class T, class HASHER> struct MapLayout_SoA : public HASHER,
 	{
 		return keys[pos];
 	}
+	__forceinline const KEY& GetKeyFromValue(const INSERT_TYPE& elem) const noexcept
+	{
+		return elem.first;
+	}
 	__forceinline INSERT_TYPE GetElem(size_t pos) const noexcept
 	{
 		return std::make_pair(keys[pos], data[pos]);
@@ -254,18 +255,6 @@ template<class KEY, class T, class HASHER> struct MapLayout_SoA : public HASHER,
 	{
 		keys = (KEY*)realloc(keys, new_num_buckets * sizeof(KEY));
 		data = (T*)realloc(data, new_num_buckets * sizeof(T));
-	}
-
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
-	__forceinline std::pair<size_t, size_t> hash_elem(const INSERT_TYPE& elem) const noexcept
-	{
-		return HASHER::operator()(elem.first);
 	}
 };
 
@@ -367,7 +356,7 @@ template<size_t ELEM_SIZE> struct MetadataLayout_AoS
 	}
 };
 // Data layouts
-template<class KEY, class HASHER> struct KeyLayout_AoS : public HASHER, public MetadataLayout_AoS<sizeof(KEY)>
+template<class KEY> struct KeyLayout_AoS : public MetadataLayout_AoS<sizeof(KEY)>
 {
 	// Constructors
 	KeyLayout_AoS() noexcept : MetadataLayout_AoS<sizeof(KEY)>()
@@ -388,6 +377,10 @@ template<class KEY, class HASHER> struct KeyLayout_AoS : public HASHER, public M
 	{
 		return *((KEY*)(all_data[pos].elem));
 	}
+	__forceinline const KEY& GetKeyFromValue(const KEY& elem) const noexcept
+	{
+		return elem;
+	}
 	__forceinline KEY GetElem(size_t pos) const noexcept
 	{
 		return *((KEY*)(all_data[pos].elem));
@@ -401,15 +394,8 @@ template<class KEY, class HASHER> struct KeyLayout_AoS : public HASHER, public M
 	{
 		// Nothing
 	}
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
 };
-template<class KEY, class T, class HASHER> struct MapLayout_AoS : public HASHER, public MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>
+template<class KEY, class T> struct MapLayout_AoS : public MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>
 {
 	using INSERT_TYPE = std::pair<KEY, T>;
 
@@ -433,6 +419,10 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoS : public HASHER,
 	{
 		return *((KEY*)(all_data[pos].elem));
 	}
+	__forceinline const KEY& GetKeyFromValue(const INSERT_TYPE& elem) const noexcept
+	{
+		return elem.first;
+	}
 	__forceinline INSERT_TYPE GetElem(size_t pos) const noexcept
 	{
 		return std::make_pair(*((KEY*)(all_data[pos].elem)), *((T*)(all_data[pos].elem + sizeof(KEY))));
@@ -445,18 +435,6 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoS : public HASHER,
 	__forceinline void ReallocElems(size_t new_num_buckets) noexcept
 	{
 		// Nothing
-	}
-
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
-	__forceinline std::pair<size_t, size_t> hash_elem(const INSERT_TYPE& elem) const noexcept
-	{
-		return HASHER::operator()(elem.first);
 	}
 };
 
@@ -573,7 +551,7 @@ template<size_t BLOCK_SIZE, class BLOCK> struct MetadataLayout_AoB
 	}
 };
 // Data layouts
-template<class KEY, class HASHER> struct KeyLayout_AoB : public HASHER, public MetadataLayout_AoB<alignof(KEY), BlockKey<KEY>>
+template<class KEY> struct KeyLayout_AoB : public MetadataLayout_AoB<alignof(KEY), BlockKey<KEY>>
 {
 	static constexpr size_t BLOCK_SIZE = alignof(KEY);
 
@@ -596,6 +574,10 @@ template<class KEY, class HASHER> struct KeyLayout_AoB : public HASHER, public M
 	{
 		return all_data[pos / BLOCK_SIZE].data[pos%BLOCK_SIZE];
 	}
+	__forceinline const KEY& GetKeyFromValue(const KEY& elem) const noexcept
+	{
+		return elem;
+	}
 	__forceinline KEY GetElem(size_t pos) const noexcept
 	{
 		return all_data[pos / BLOCK_SIZE].data[pos%BLOCK_SIZE];
@@ -609,15 +591,8 @@ template<class KEY, class HASHER> struct KeyLayout_AoB : public HASHER, public M
 	{
 		// Nothing
 	}
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
 };
-template<class KEY, class T, class HASHER> struct MapLayout_AoB : public HASHER, public MetadataLayout_AoB<MaxAlignOf<KEY, T>::BLOCK_SIZE, BlockMap<KEY, T>>
+template<class KEY, class T> struct MapLayout_AoB : public MetadataLayout_AoB<MaxAlignOf<KEY, T>::BLOCK_SIZE, BlockMap<KEY, T>>
 {
 	using INSERT_TYPE = std::pair<KEY, T>;
 	static constexpr size_t BLOCK_SIZE = std::max(alignof(KEY), alignof(T));
@@ -643,6 +618,10 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoB : public HASHER,
 	{
 		return all_data[pos / BLOCK_SIZE].keys[pos%BLOCK_SIZE];
 	}
+	__forceinline const KEY& GetKeyFromValue(const INSERT_TYPE& elem) const noexcept
+	{
+		return elem.first;
+	}
 	__forceinline INSERT_TYPE GetElem(size_t pos) const noexcept
 	{
 		return std::make_pair(all_data[pos / BLOCK_SIZE].keys[pos%BLOCK_SIZE], all_data[pos / BLOCK_SIZE].data[pos%BLOCK_SIZE]);
@@ -656,18 +635,6 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoB : public HASHER,
 	{
 		// Nothing
 	}
-
-	/////////////////////////////////////////////////////////////////////
-	// Utilities
-	/////////////////////////////////////////////////////////////////////
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY& elem) const noexcept
-	{
-		return HASHER::operator()(elem);
-	}
-	__forceinline std::pair<size_t, size_t> hash_elem(const INSERT_TYPE& elem) const noexcept
-	{
-		return HASHER::operator()(elem.first);
-	}
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -675,9 +642,8 @@ template<class KEY, class T, class HASHER> struct MapLayout_AoB : public HASHER,
 //
 // TODO: Iterator, Handle move semantic of elems, destructor call when removed,
 //       Memory_Allocator
-// TODO: Consider put the HASHER here and not in DATA.
 ///////////////////////////////////////////////////////////////////////////////
-template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_IMPL : private EQ, protected DATA
+template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class HASHER, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_IMPL : private HASHER, private EQ, protected DATA
 {
 protected:
 	// Pointers -> found in DATA and METADATA through inheritance
@@ -699,6 +665,10 @@ protected:
 	__forceinline bool cmp_elems(size_t pos, const KEY_TYPE& r) const noexcept
 	{
 		return EQ::operator()(DATA::GetKey(pos), r);
+	}
+	__forceinline std::pair<size_t, size_t> hash_elem(const KEY_TYPE& elem) const noexcept
+	{
+		return HASHER::operator()(elem);
 	}
 
 	/////////////////////////////////////////////////////////////////////
@@ -987,7 +957,7 @@ protected:
 				if (!METADATA::Is_Empty(i))
 				{
 					size_t hash0, hash1;
-					std::tie(hash0, hash1) = DATA::hash_elem(DATA::GetKey(i));
+					std::tie(hash0, hash1) = hash_elem(DATA::GetKey(i));
 					size_t bucket1_pos_init = fastrange(hash0, num_buckets);
 					bool is_bucket1_reversed = METADATA::Is_Bucket_Reversed(bucket1_pos_init);
 					bucket1_pos_init += is_bucket1_reversed ? (1ull - NUM_ELEMS_BUCKET) : 0;
@@ -1043,9 +1013,9 @@ protected:
 	}
 
 	// Constructors
-	CBG_IMPL() noexcept : num_elems(0), num_buckets(0), EQ(), DATA()
+	CBG_IMPL() noexcept : num_elems(0), num_buckets(0), HASHER(), EQ(), DATA()
 	{}
-	CBG_IMPL(size_t expected_num_elems) noexcept : EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
+	CBG_IMPL(size_t expected_num_elems) noexcept : HASHER(), EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
 		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
 	{
 		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
@@ -1062,7 +1032,7 @@ protected:
 		while (true)
 		{
 			size_t hash0, hash1;
-			std::tie(hash0, hash1) = DATA::hash_elem(elem);
+			std::tie(hash0, hash1) = hash_elem(DATA::GetKeyFromValue(elem));
 
 			// Calculate positions given hash
 			size_t bucket1_pos = fastrange(hash0, num_buckets);
@@ -1183,7 +1153,7 @@ protected:
 	size_t find_position_SoA(const KEY_TYPE& elem) const noexcept
 	{
 		size_t hash0, hash1;
-		std::tie(hash0, hash1) = DATA::hash_elem(elem);
+		std::tie(hash0, hash1) = hash_elem(elem);
 
 		// Check first bucket
 		size_t pos = fastrange(hash0, num_buckets);
@@ -1253,7 +1223,7 @@ protected:
 	size_t find_position_AoS(const KEY_TYPE& elem) const noexcept
 	{
 		size_t hash0, hash1;
-		std::tie(hash0, hash1) = DATA::hash_elem(elem);
+		std::tie(hash0, hash1) = hash_elem(elem);
 
 		// Check first bucket
 		size_t pos = fastrange(hash0, num_buckets);
@@ -1407,8 +1377,8 @@ public:
 };
 
 // Map. Only added simple mapping operations.
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_MAP_IMPL : 
-	public CBG_IMPL<NUM_ELEMS_BUCKET, std::pair<KEY, T>, KEY, T, EQ, DATA, METADATA, IS_NEGATIVE>
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_MAP_IMPL : 
+	public CBG_IMPL<NUM_ELEMS_BUCKET, std::pair<KEY, T>, KEY, T, HASHER, EQ, DATA, METADATA, IS_NEGATIVE>
 {
 public:
 	CBG_MAP_IMPL() noexcept : CBG_IMPL()
@@ -1463,7 +1433,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
 template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_SoA :
-	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, EQ, cbg_internal::KeyLayout_SoA<T, HASHER>, cbg_internal::MetadataLayout_SoA, true>
+	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_SoA<T>, cbg_internal::MetadataLayout_SoA, true>
 {
 public:
 	Set_SoA() noexcept : CBG_IMPL()
@@ -1474,7 +1444,7 @@ public:
 };
 // (Array of structs)
 template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoS :
-	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, EQ, cbg_internal::KeyLayout_AoS<T, HASHER>, cbg_internal::MetadataLayout_AoS<sizeof(T)>, false>
+	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoS<T>, cbg_internal::MetadataLayout_AoS<sizeof(T)>, false>
 {
 public:
 	Set_AoS() noexcept : CBG_IMPL()
@@ -1485,7 +1455,7 @@ public:
 };
 // (Array of blocks)
 template<size_t NUM_ELEMS_BUCKET, class T, class HASHER, class EQ = std::equal_to<T>> class Set_AoB :
-	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, EQ, cbg_internal::KeyLayout_AoB<T, HASHER>, cbg_internal::MetadataLayout_AoB<alignof(T), cbg_internal::BlockKey<T>>, false>
+	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoB<T>, cbg_internal::MetadataLayout_AoB<alignof(T), cbg_internal::BlockKey<T>>, false>
 {
 public:
 	Set_AoB() noexcept : CBG_IMPL()
@@ -1499,7 +1469,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_SoA :
-	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, EQ, cbg_internal::MapLayout_SoA<KEY, T, HASHER>, cbg_internal::MetadataLayout_SoA, true>
+	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_SoA<KEY, T>, cbg_internal::MetadataLayout_SoA, true>
 {
 public:
 	Map_SoA() noexcept : CBG_MAP_IMPL()
@@ -1510,7 +1480,7 @@ public:
 };
 // (Array of structs)
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoS :
-	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, EQ, cbg_internal::MapLayout_AoS<KEY, T, HASHER>, cbg_internal::MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>, false>
+	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoS<KEY, T>, cbg_internal::MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>, false>
 {
 public:
 	Map_AoS() noexcept : CBG_MAP_IMPL()
@@ -1521,7 +1491,7 @@ public:
 };
 // (Array of blocks)
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ = std::equal_to<KEY>> class Map_AoB :
-	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, EQ, cbg_internal::MapLayout_AoB<KEY, T, HASHER>, cbg_internal::MetadataLayout_AoB<cbg_internal::MaxAlignOf<KEY, T>::BLOCK_SIZE, cbg_internal::BlockMap<KEY, T>>, false>
+	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoB<KEY, T>, cbg_internal::MetadataLayout_AoB<cbg_internal::MaxAlignOf<KEY, T>::BLOCK_SIZE, cbg_internal::BlockMap<KEY, T>>, false>
 {
 public:
 	Map_AoB() noexcept : CBG_MAP_IMPL()
