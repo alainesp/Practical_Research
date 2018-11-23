@@ -6,7 +6,9 @@ Alain Espinosa <alainesp@gmail.com>
 
 `Published: Oct 31, 2018`
 
-`Last Edited: Oct 31, 2018` (version 0.1 - consider it *alpha* version or *1st DRAFT*)
+`Last Edited: Nov 23, 2018` (version 0.1 - consider it *alpha* version or *1st DRAFT*)
+
+**Note: For production code you can use [cbg.hpp](cbg.hpp) in this same repository. Samples are in [cbg_sample.cpp](cbg_sample.cpp).**
 
 ### Abstract
 
