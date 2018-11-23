@@ -47,9 +47,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 // NUM_ELEMS_BUCKET parameter selection:
 //
-// - Fastest possible : NUM_ELEMS_BUCKET=2 with load_factor < 50%
+// - Fastest possible : NUM_ELEMS_BUCKET=2 with load_factor < 60%
 // - No memory waste  : NUM_ELEMS_BUCKET=4 with load_factor > 95%
-// - Balanced approach: NUM_ELEMS_BUCKET=3 with 50% < load_factor < 95%
+// - Balanced approach: NUM_ELEMS_BUCKET=3 with 60% < load_factor < 95%
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
