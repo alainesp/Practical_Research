@@ -1485,30 +1485,30 @@ protected:
 		// Check first bucket
 		size_t pos = fastrange(hash0, num_buckets);
 
-		uint16_t c0 = METADATA::at(pos);
+		uint_fast16_t c0 = METADATA::at(pos);
 
-		uint16_t h = uint16_t(hash1);
-		if (((c0 ^ h) & 0xFF00) == 0 && cmp_elems(pos, elem) && (c0 & 0b111))
+		uint_fast16_t h = static_cast<uint_fast16_t>(hash1);
+		if (((c0 ^ h) & 0xFF00) == 0 && (c0 & 0b111) && cmp_elems(pos, elem))
 			return pos;
 
-		size_t reverse_sum = /*Is_Reversed_Window(pos)*/c0 & 0b01'000'000 ? size_t(-1) : size_t(1);
+		size_t reverse_sum = /*Is_Reversed_Window(pos)*/c0 & 0b01'000'000 ? static_cast<size_t>(-1) : static_cast<size_t>(1);
 
 		pos += reverse_sum;
-		uint16_t cc = METADATA::at(pos);
-		if (((cc ^ h) & 0xFF00) == 0 && cmp_elems(pos, elem) && (cc & 0b111))
+		uint_fast16_t cc = METADATA::at(pos);
+		if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos, elem))
 			return pos;
 		if (NUM_ELEMS_BUCKET > 2)
 		{
 			pos += reverse_sum;
 			cc = METADATA::at(pos);
-			if (((cc ^ h) & 0xFF00) == 0 && cmp_elems(pos, elem) && (cc & 0b111))
+			if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos, elem))
 				return pos;
 		}
 		if (NUM_ELEMS_BUCKET > 3)
 		{
 			pos += reverse_sum;
 			cc = METADATA::at(pos);
-			if (((cc ^ h) & 0xFF00) == 0 && cmp_elems(pos, elem) && (cc & 0b111))
+			if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos, elem))
 				return pos;
 		}
 
@@ -1519,11 +1519,11 @@ protected:
 
 			cc = METADATA::at(pos);
 
-			h = uint16_t(hash0);
+			h = static_cast<uint_fast16_t>(hash0);
 			if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos, elem))
 				return pos;
 
-			reverse_sum = /*Is_Reversed_Window(pos)*/cc & 0b01'000'000 ? size_t(-1) : size_t(1);
+			reverse_sum = /*Is_Reversed_Window(pos)*/cc & 0b01'000'000 ? static_cast<size_t>(-1) : static_cast<size_t>(1);
 
 			pos += reverse_sum;
 			cc = METADATA::at(pos);
@@ -1560,7 +1560,7 @@ protected:
 		if (cmp_elems(pos, elem) && (c0 & 0b111))
 			return pos;
 
-		size_t reverse_sum = /*Is_Reversed_Window(pos)*/c0 & 0b01'000'000 ? size_t(-1) : size_t(1);
+		size_t reverse_sum = /*Is_Reversed_Window(pos)*/c0 & 0b01'000'000 ? static_cast<size_t>(-1) : static_cast<size_t>(1);
 
 		pos += reverse_sum;
 		uint_fast16_t cc = METADATA::at(pos);
@@ -1592,7 +1592,7 @@ protected:
 			if (cmp_elems(pos, elem) && (cc & 0b111))
 				return pos;
 
-			reverse_sum = /*Is_Reversed_Window(pos)*/cc & 0b01'000'000 ? size_t(-1) : size_t(1);
+			reverse_sum = /*Is_Reversed_Window(pos)*/cc & 0b01'000'000 ? static_cast<size_t>(-1) : static_cast<size_t>(1);
 
 			pos += reverse_sum;
 			cc = METADATA::at(pos);
