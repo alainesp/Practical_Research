@@ -441,6 +441,15 @@ struct MetadataLayout_SoA
 	{
 		metadata[pos] |= 0b01'000'000;
 	}
+
+	//// Cache line aware
+	//__forceinline bool Benefit_With_Reversal(size_t pos, size_t size_bucket) const noexcept
+	//{
+	//	uintptr_t begin_cache_line = reinterpret_cast<uintptr_t>(metadata + pos) & (~static_cast<uintptr_t>(63));
+	//	uintptr_t end_cache_line = reinterpret_cast<uintptr_t>(metadata + pos + size_bucket - 1) & (~static_cast<uintptr_t>(63));
+
+	//	return begin_cache_line < end_cache_line;
+	//}
 };
 // Data layouts
 template<class KEY> struct KeyLayout_SoA : public MetadataLayout_SoA
@@ -645,6 +654,17 @@ template<size_t ELEM_SIZE> struct MetadataLayout_AoS
 	{
 		all_data[pos].metadata |= 0b01'000'000;
 	}
+
+	//// Cache line aware
+	//__forceinline bool Benefit_With_Reversal(size_t pos, size_t size_bucket) const noexcept
+	//{
+	//	uintptr_t begin_cache_line = reinterpret_cast<uintptr_t>(all_data + pos) & (~static_cast<uintptr_t>(63));
+	//	uintptr_t end_cache_line = reinterpret_cast<uintptr_t>(all_data + pos + size_bucket - 1) & (~static_cast<uintptr_t>(63));
+	//	uintptr_t reverse_cache_line = reinterpret_cast<uintptr_t>(all_data + pos - (size_bucket - 1)) & (~static_cast<uintptr_t>(63));
+
+	//	// TODO: Do more checks, this is too simple
+	//	return begin_cache_line < end_cache_line && reverse_cache_line == begin_cache_line;
+	//}
 };
 // Data layouts
 template<class KEY> struct KeyLayout_AoS : public MetadataLayout_AoS<sizeof(KEY)>
@@ -840,6 +860,13 @@ template<size_t BLOCK_SIZE, class BLOCK> struct MetadataLayout_AoB
 	{
 		all_data[pos / BLOCK_SIZE].metadata[pos%BLOCK_SIZE] |= 0b01'000'000;
 	}
+
+	//// Cache line aware
+	//__forceinline bool Benefit_With_Reversal(size_t pos, size_t size_bucket) const noexcept
+	//{
+	//	// TODO: Make calculations here
+	//	return false;
+	//}
 };
 // Data layouts
 template<class KEY> struct KeyLayout_AoB : public MetadataLayout_AoB<alignof(KEY), BlockKey<KEY>>
@@ -1310,9 +1337,16 @@ protected:
 	CBG_IMPL(size_t expected_num_elems) noexcept : HASHER(), EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
 		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
 	{
+		// TODO: Call clear() here instead of this code?
 		// Last buckets are always reversed
 		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
 			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
+
+		// TODO: Check why this does not improve performance
+		// This need to be repetead in clear() and rehash() methods
+		/*for (size_t i = NUM_ELEMS_BUCKET - 1; i < num_buckets; i++)
+			if(METADATA::Benefit_With_Reversal(i, NUM_ELEMS_BUCKET))
+				METADATA::Set_Bucket_Reversed(i);*/
 	}
 	~CBG_IMPL() noexcept
 	{
@@ -1608,8 +1642,13 @@ public:
 		num_elems = 0;
 		METADATA::Clear(0, num_buckets);
 
+		// Last buckets are always reversed
 		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
 			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
+
+		/*for (size_t i = NUM_ELEMS_BUCKET - 1; i < num_buckets; i++)
+			if (METADATA::Benefit_With_Reversal(i, NUM_ELEMS_BUCKET))
+				METADATA::Set_Bucket_Reversed(i);*/
 	}
 	float load_factor() const noexcept
 	{
