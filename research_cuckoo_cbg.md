@@ -26,7 +26,7 @@ A hash table is a data structure that maps items to locations using a hash funct
 
  There are many variants of cuckoo hashing. Here we review the most prominent, but first we define some terms.
 
- - **Bin**: A memory location were only one element can be stored.
+ - **Bin**: A memory location where only one element can be stored.
  - **Bucket**: A contiguous collection of bins.
  - **Table load**: The number of elements stored in the hash table divided by the number of bins.
  - **Load threshold**: It is well know the existence of load thresholds in cuckoo hashing. It is a load that can be achieved with high probability but higher loads can not.
