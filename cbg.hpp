@@ -13,7 +13,7 @@
 // not. Many optimizations opportunities remains unexploited. This is intended as
 // an early prototype for early adopters.
 //
-// Tested on Windows 64 bits with VC++ 2017.
+// Tested on Windows 64 bits with VC++ 2017. Requires C++ 14.
 // Easy to support 32 bits, Linux and other compilers, but currently not done.
 // Comments and PR are welcomed.
 //
@@ -47,15 +47,15 @@
 ///////////////////////////////////////////////////////////////////////////////
 // NUM_ELEMS_BUCKET parameter selection:
 //
-// - Fastest possible : NUM_ELEMS_BUCKET=2 with load_factor < 60%
+// - Fastest possible : NUM_ELEMS_BUCKET=2 with load_factor < 80%
 // - No memory waste  : NUM_ELEMS_BUCKET=4 with load_factor > 95%
-// - Balanced approach: NUM_ELEMS_BUCKET=3 with 60% < load_factor < 95%
+// - Balanced approach: NUM_ELEMS_BUCKET=3 with 80% < load_factor < 95%
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
 
 // Disable assert() and obtain best performance
-//#define NDEBUG
+#define NDEBUG
 
 #include <cstdint>
 #include <tuple>
@@ -298,59 +298,15 @@ template<class DATA_ACCESS> struct t1ha2<char*, DATA_ACCESS> : public t1ha2_inte
 		return operator(data, strlen(data));
 	}
 };
-
-///////////////////////////////////////////////////////////////////////////////
-// t1ha2 for use with CBG
-///////////////////////////////////////////////////////////////////////////////
-template<class T, class DATA_ACCESS = t1ha2_internal::x86> struct t1ha2_pair : public t1ha2<T, DATA_ACCESS>
-{
-	t1ha2_pair() noexcept : t1ha2<T, DATA_ACCESS>()
-	{}
-	t1ha2_pair(uint64_t seed) noexcept : t1ha2<T, DATA_ACCESS>(seed)
-	{}
-
-	// TODO: Hashtable capacity of more than 32 bits may gives problems.
-	//       Cuckoo filter [[1]] demostrates that cuckoo algorithm works
-	//       similarly with 5-6 bits for the secondary hash than with
-	//       two fully independent hash functions.
-	//
-	// [1] 2014 - "Cuckoo Filter Practically Better Than Bloom"
-	// by Bin Fan, Dave Andersen, Michael Kaminsky and  Michael D. Mitzenmacher 
-	std::pair<size_t,size_t> operator()(const T& elem) const noexcept
-	{
-		uint64_t hash = t1ha2::operator()(elem);
-		return std::make_pair(hash, rot64(hash, 32));
-	}
-};
-// Partial specialization
-template<class DATA_ACCESS> struct t1ha2_pair<std::string, DATA_ACCESS> : public t1ha2<std::string, DATA_ACCESS>
-{
-	t1ha2_pair() noexcept : t1ha2()
-	{}
-	t1ha2_pair(uint64_t seed) noexcept : t1ha2(seed)
-	{}
-
-	std::pair<size_t, size_t> operator()(const std::string& data) const noexcept
-	{
-		uint64_t hash = operator(data.c_str(), data.length);
-		return std::make_pair(hash, rot64(hash, 32));
-	}
-};
-template<class DATA_ACCESS> struct t1ha2_pair<char*, DATA_ACCESS> : public t1ha2<char*, DATA_ACCESS>
-{
-	t1ha2_pair() noexcept : t1ha2()
-	{}
-	t1ha2_pair(uint64_t seed) noexcept : t1ha2(seed)
-	{}
-
-	std::pair<size_t, size_t> operator()(const char* data) const noexcept
-	{
-		uint64_t hash = operator(data, strlen(data));
-		return std::make_pair(hash, rot64(hash, 32));
-	}
-};
 }// end namespace hashing
 
+// Search Hint
+enum class Search_Hint
+{
+	Unknow,
+	Expect_Positive,
+	Expect_Negative
+};
 // Internal implementations
 namespace cbg_internal
 {
@@ -961,7 +917,7 @@ template<class KEY, class T> struct MapLayout_AoB : public MetadataLayout_AoB<Ma
 // TODO: Iterator, Handle move semantic of elems, destructor call when removed,
 //       Memory_Allocator
 ///////////////////////////////////////////////////////////////////////////////
-template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class HASHER, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_IMPL : private HASHER, private EQ, protected DATA
+template<size_t NUM_ELEMS_BUCKET, class INSERT_TYPE, class KEY_TYPE, class VALUE_TYPE, class HASHER, class EQ, class DATA, class METADATA, bool USE_METADATA_SEARCH> class CBG_IMPL : private HASHER, private EQ, protected DATA
 {
 protected:
 	// Pointers -> found in DATA and METADATA through inheritance
@@ -969,7 +925,7 @@ protected:
 	size_t num_elems;
 	size_t num_buckets;
 	// Parameters
-	float _max_load_factor = 0.9001f;// 90% -> When this load factor is reached the table is grow
+	float _max_load_factor = 0.9001f;// 90% -> When this load factor is reached the table grow
 	float _grow_factor = 1.2f;// 20% -> How much to grow the table
 	// Constants
 	static constexpr uint_fast16_t L_MAX = 7;
@@ -978,16 +934,42 @@ protected:
 	static_assert(NUM_ELEMS_BUCKET >= 2 && NUM_ELEMS_BUCKET <= 4, "To use only 2 bits");
 	static_assert(std::is_unsigned<size_t>::value, "size_t required to be unsigned");
 
-	/////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////
 	// Utilities
-	/////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////
 	__forceinline bool cmp_elems(size_t pos, const KEY_TYPE& r) const noexcept
 	{
 		return EQ::operator()(DATA::GetKey(pos), r);
 	}
-	__forceinline std::pair<size_t, size_t> hash_elem(const KEY_TYPE& elem) const noexcept
+	// Note: We use a hash of only 64 bits for the two hash functions as:
+	//
+	// hash0 = hash;
+	// hash1 = rot64(hash, 32);
+	//
+	// Hashtable capacity of more than 32 bits may give problems. Cuckoo filter
+	// [[1]] demonstrates that cuckoo algorithm works similarly with 5-6 bits
+	// for the secondary hash than with two fully independent hash functions.
+	// Therefore we expect (TODO: check it) CBG to work well until the number
+	// of buckets is 6 bytes or 255 Tera (of buckets, if each element is a
+	// uint64_t this will use 2040 TB of memory). This is plenty for all normal
+	// use of CBG. If your use-case needs more number of buckets, change the
+	// following 2 functions, probably returning 128 bits of hash.
+	//
+	// [1] 2014 - "Cuckoo Filter Practically Better Than Bloom"
+	// by Bin Fan, Dave Andersen, Michael Kaminsky and Michael D. Mitzenmacher
+	//
+	// Note on performance: The first idea that may occur to you is return a
+	// std::pair<size_t, size_t> instead of uint64_t. This is clearer but the
+	// performance is 60% worse on lookup when the structure is larger than the
+	// cache. Given that a hashtable is used mainly for performance reasons we
+	// use the faster version.
+	__forceinline uint64_t hash_elem(const KEY_TYPE& elem) const noexcept
 	{
 		return HASHER::operator()(elem);
+	}
+	__forceinline uint64_t get_hash1(uint64_t hash) const noexcept
+	{
+		return rot64(hash, 32);
 	}
 
 	/////////////////////////////////////////////////////////////////////
@@ -1275,8 +1257,7 @@ protected:
 			{
 				if (!METADATA::Is_Empty(i))
 				{
-					size_t hash0, hash1;
-					std::tie(hash0, hash1) = hash_elem(DATA::GetKey(i));
+					uint64_t hash0 = hash_elem(DATA::GetKey(i));
 					size_t bucket1_pos_init = fastrange(hash0, num_buckets);
 					bool is_bucket1_reversed = METADATA::Is_Bucket_Reversed(bucket1_pos_init);
 					bucket1_pos_init += is_bucket1_reversed ? (1ull - NUM_ELEMS_BUCKET) : 0;
@@ -1290,7 +1271,7 @@ protected:
 						std::tie(min1, pos1) = Calculate_Minimum(bucket1_pos_init);
 						if (min1 == 0)
 						{
-							Update_Bin_At_Debug(pos1, pos1 - bucket1_pos_init, is_bucket1_reversed, 1, hash1);
+							Update_Bin_At_Debug(pos1, pos1 - bucket1_pos_init, is_bucket1_reversed, 1, hash0);
 							// Put elem
 							DATA::MoveElem(pos1, i);
 							num_elems++;
@@ -1331,35 +1312,15 @@ protected:
 		return new_num_buckets;
 	}
 
-	// Constructors
-	CBG_IMPL() noexcept : num_elems(0), num_buckets(0), HASHER(), EQ(), DATA()
-	{}
-	CBG_IMPL(size_t expected_num_elems) noexcept : HASHER(), EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
-		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
-	{
-		// TODO: Call clear() here instead of this code?
-		// Last buckets are always reversed
-		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
-			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
-
-		// TODO: Check why this does not improve performance
-		// This need to be repetead in clear() and rehash() methods
-		/*for (size_t i = NUM_ELEMS_BUCKET - 1; i < num_buckets; i++)
-			if(METADATA::Benefit_With_Reversal(i, NUM_ELEMS_BUCKET))
-				METADATA::Set_Bucket_Reversed(i);*/
-	}
-	~CBG_IMPL() noexcept
-	{
-		num_elems = 0;
-		num_buckets = 0;
-	}
-
 	bool try_insert(INSERT_TYPE& elem) noexcept
 	{
 		while (true)
 		{
-			size_t hash0, hash1;
-			std::tie(hash0, hash1) = hash_elem(DATA::GetKeyFromValue(elem));
+			// Note on performance: Using only hash0 until needed (Secondary added)
+			// will improve preformance by 10-15%. Not enough given that it
+			// modify behavior with labels (assuming min2==0 and new label==1).
+			uint64_t hash0 = hash_elem(DATA::GetKeyFromValue(elem));
+			uint64_t hash1 = get_hash1(hash0);
 
 			// Calculate positions given hash
 			size_t bucket1_pos = fastrange(hash0, num_buckets);
@@ -1399,7 +1360,7 @@ protected:
 			// First bucket had free space
 			if (min1 == 0)
 			{
-				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash0);
 				// Put elem
 				DATA::SaveElem(pos1, elem);
 				num_elems++;
@@ -1411,7 +1372,7 @@ protected:
 			{
 				is_reversed_bucket1 = METADATA::Is_Bucket_Reversed(bucket1_pos);
 				bucket1_init = bucket1_pos + (is_reversed_bucket1 ? (1 - NUM_ELEMS_BUCKET) : 0);
-				Update_Bin_At_Debug(empty_pos, empty_pos - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(empty_pos, empty_pos - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash0);
 
 				// Put elem
 				DATA::SaveElem(empty_pos, elem);
@@ -1425,7 +1386,7 @@ protected:
 			if (min2 == 0)
 			{
 				METADATA::Set_Unlucky_Bucket(bucket1_pos);
-				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash1);
 				// Put elem
 				DATA::SaveElem(pos2, elem);
 				num_elems++;
@@ -1441,7 +1402,7 @@ protected:
 					METADATA::Set_Unlucky_Bucket(bucket1_pos);
 					is_reversed_bucket2 = METADATA::Is_Bucket_Reversed(bucket2_pos);
 					bucket2_init = bucket2_pos + (is_reversed_bucket2 ? (1 - NUM_ELEMS_BUCKET) : 0);
-					Update_Bin_At_Debug(empty_pos, empty_pos - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+					Update_Bin_At_Debug(empty_pos, empty_pos - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash1);
 
 					// Put elem
 					DATA::SaveElem(empty_pos, elem);
@@ -1456,7 +1417,7 @@ protected:
 
 			if (min1 <= min2)// Selected pos in first bucket
 			{
-				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash1);
+				Update_Bin_At_Debug(pos1, pos1 - bucket1_init, is_reversed_bucket1, std::min(min2 + 1, L_MAX), hash0);
 				// Put elem
 				INSERT_TYPE victim = DATA::GetElem(pos1);
 				DATA::SaveElem(pos1, elem);
@@ -1465,7 +1426,7 @@ protected:
 			else
 			{
 				METADATA::Set_Unlucky_Bucket(bucket1_pos);
-				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash0);
+				Update_Bin_At_Debug(pos2, pos2 - bucket2_init, is_reversed_bucket2, std::min(min1 + 1, L_MAX), hash1);
 				// Put elem
 				INSERT_TYPE victim = DATA::GetElem(pos2);
 				DATA::SaveElem(pos2, elem);
@@ -1477,21 +1438,20 @@ protected:
 	///////////////////////////////////////////////////////////////////////////////
 	// Find an element
 	///////////////////////////////////////////////////////////////////////////////
-	size_t find_position_SoA(const KEY_TYPE& elem) const noexcept
+	size_t find_position_negative(const KEY_TYPE& elem) const noexcept
 	{
-		size_t hash0, hash1;
-		std::tie(hash0, hash1) = hash_elem(elem);
+		uint64_t hash = hash_elem(elem);
 
 		// Check first bucket
-		size_t pos = fastrange(hash0, num_buckets);
+		size_t pos = fastrange(hash, num_buckets);
 
 		uint_fast16_t c0 = METADATA::at(pos);
 
-		uint_fast16_t h = static_cast<uint_fast16_t>(hash1);
+		uint_fast16_t h = static_cast<uint_fast16_t>(hash);
 		if (((c0 ^ h) & 0xFF00) == 0 && (c0 & 0b111) && cmp_elems(pos, elem))
 			return pos;
 
-		if (c0 & 0b01'000'000)/*Is_Reversed_Window(pos)*/
+		if (c0 & 0b01'000'000)// Is_Reversed_Window(pos)
 		{
 			uint_fast16_t cc = METADATA::at(pos-1);
 			if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos-1, elem))
@@ -1529,16 +1489,16 @@ protected:
 					return pos+3;
 			}
 		}
-		
 
 		// Check second bucket
-		if (c0 & 0b10'000'000)//Is_Unlucky_Bucket(pos)
+		if (c0 & 0b10'000'000)// Is_Unlucky_Bucket(pos)
 		{
-			pos = fastrange(hash1, num_buckets);
+			hash = get_hash1(hash);
+			pos = fastrange(hash, num_buckets);
 
 			uint_fast16_t cc = METADATA::at(pos);
 
-			h = static_cast<uint_fast16_t>(hash0);
+			h = static_cast<uint_fast16_t>(hash);
 			if (((cc ^ h) & 0xFF00) == 0 && (cc & 0b111) && cmp_elems(pos, elem))
 				return pos;
 
@@ -1566,20 +1526,19 @@ protected:
 
 		return SIZE_MAX;
 	}
-	size_t find_position_AoS(const KEY_TYPE& elem) const noexcept
+	size_t find_position_negative_no_metadata(const KEY_TYPE& elem) const noexcept
 	{
-		size_t hash0, hash1;
-		std::tie(hash0, hash1) = hash_elem(elem);
+		uint64_t hash = hash_elem(elem);
 
 		// Check first bucket
-		size_t pos = fastrange(hash0, num_buckets);
+		size_t pos = fastrange(hash, num_buckets);
 
 		uint_fast16_t c0 = METADATA::at(pos);
 
 		if (cmp_elems(pos, elem) && (c0 & 0b111))
 			return pos;
 
-		if (c0 & 0b01'000'000)/*Is_Reversed_Window(pos)*/
+		if (c0 & 0b01'000'000)// Is_Reversed_Window(pos)
 		{
 			uint_fast16_t cc = METADATA::at(pos-1);
 			if (cmp_elems(pos-1, elem) && (cc & 0b111))
@@ -1621,7 +1580,8 @@ protected:
 		// Check second bucket
 		if (c0 & 0b10'000'000)//Is_Unlucky_Bucket(pos)
 		{
-			pos = fastrange(hash1, num_buckets);
+			hash = get_hash1(hash);
+			pos = fastrange(hash, num_buckets);
 
 			uint_fast16_t cc = METADATA::at(pos);
 
@@ -1652,16 +1612,158 @@ protected:
 
 		return SIZE_MAX;
 	}
-	__forceinline size_t find_position(const KEY_TYPE& elem) const noexcept
+	size_t find_position_positive(const KEY_TYPE& elem) const noexcept
 	{
-		if (IS_NEGATIVE)
-			return find_position_SoA(elem);// Negative queries prefered
+		uint64_t hash = hash_elem(elem);
+
+		// Check first bucket
+		size_t pos = fastrange(hash, num_buckets);
+
+		uint_fast16_t c0 = METADATA::at(pos);
+
+		if (cmp_elems(pos, elem) && (c0 & 0b111))
+			return pos;
+
+		if (c0 & 0b01'000'000)// Is_Reversed_Window(pos)
+		{
+			uint_fast16_t cc = METADATA::at(pos - 1);
+			if (cmp_elems(pos - 1, elem) && (cc & 0b111))
+				return pos - 1;
+
+			if (NUM_ELEMS_BUCKET > 2)
+			{
+				cc = METADATA::at(pos - 2);
+				if (cmp_elems(pos - 2, elem) && (cc & 0b111))
+					return pos - 2;
+			}
+			if (NUM_ELEMS_BUCKET > 3)
+			{
+				cc = METADATA::at(pos - 3);
+				if (cmp_elems(pos - 3, elem) && (cc & 0b111))
+					return pos - 3;
+			}
+		}
+		else// Normal
+		{
+			uint_fast16_t cc = METADATA::at(pos + 1);
+			if (cmp_elems(pos + 1, elem) && (cc & 0b111))
+				return pos + 1;
+
+			if (NUM_ELEMS_BUCKET > 2)
+			{
+				cc = METADATA::at(pos + 2);
+				if (cmp_elems(pos + 2, elem) && (cc & 0b111))
+					return pos + 2;
+			}
+			if (NUM_ELEMS_BUCKET > 3)
+			{
+				cc = METADATA::at(pos + 3);
+				if (cmp_elems(pos + 3, elem) && (cc & 0b111))
+					return pos + 3;
+			}
+		}
+
+		// Check second bucket
+		//if (c0 & 0b10'000'000)//Is_Unlucky_Bucket(pos)
+		{
+			hash = get_hash1(hash);
+			pos = fastrange(hash, num_buckets);
+
+			uint_fast16_t cc = METADATA::at(pos);
+
+			if (cmp_elems(pos, elem) && (cc & 0b111))
+				return pos;
+
+			size_t reverse_sum = /*Is_Reversed_Window(pos)*/cc & 0b01'000'000 ? static_cast<size_t>(-1) : static_cast<size_t>(1);
+
+			pos += reverse_sum;
+			cc = METADATA::at(pos);
+			if (cmp_elems(pos, elem) && (cc & 0b111))
+				return pos;
+			if (NUM_ELEMS_BUCKET > 2)
+			{
+				pos += reverse_sum;
+				cc = METADATA::at(pos);
+				if (cmp_elems(pos, elem) && (cc & 0b111))
+					return pos;
+			}
+			if (NUM_ELEMS_BUCKET > 3)
+			{
+				pos += reverse_sum;
+				cc = METADATA::at(pos);
+				if (cmp_elems(pos, elem) && (cc & 0b111))
+					return pos;
+			}
+		}
+
+		return SIZE_MAX;
+	}
+	__forceinline size_t find_position(const KEY_TYPE& elem, Search_Hint hint) const noexcept
+	{
+		if (hint == Search_Hint::Expect_Positive)
+			return find_position_positive(elem);// Positive queries prefered
+
+		// Negative or unknow queries
+		if (USE_METADATA_SEARCH)
+			return find_position_negative(elem);
 		else
-			return find_position_AoS(elem);// Positive queries prefered
+			return find_position_negative_no_metadata(elem);
 	}
 
 public:
+	///////////////////////////////////////////////////////////////////////////////
+	// Constructors
+	///////////////////////////////////////////////////////////////////////////////
+	// Default
+	CBG_IMPL() noexcept : num_elems(0), num_buckets(0), HASHER(), EQ(), DATA()
+	{}
+	explicit CBG_IMPL(size_t expected_num_elems) noexcept : HASHER(), EQ(), DATA(std::max(MIN_BUCKETS_COUNT, expected_num_elems)),
+		num_elems(0), num_buckets(std::max(MIN_BUCKETS_COUNT, expected_num_elems))
+	{
+		// TODO: Call clear() here instead of this code?
+		// Last buckets are always reversed
+		for (size_t i = 0; i < (NUM_ELEMS_BUCKET - 1); i++)
+			METADATA::Set_Bucket_Reversed(num_buckets - 1 - i);
+
+		// TODO: Check why this does not improve performance
+		// This need to be repetead in clear() and rehash() methods
+		/*for (size_t i = NUM_ELEMS_BUCKET - 1; i < num_buckets; i++)
+		if(METADATA::Benefit_With_Reversal(i, NUM_ELEMS_BUCKET))
+		METADATA::Set_Bucket_Reversed(i);*/
+	}
+	// TODO: Do all this constructors
+	// Initializer List constructor
+	//CBG_IMPL(std::initializer_list<INSERT_TYPE> init) noexcept : CBG_IMPL(init.size() / _max_load_factor)
+	//{
+	//	// TODO...
+	//}
+	// Range constructor
+	//CBG_IMPL(InputIter first, InputIter last) noexcept : CBG_IMPL(init.size() / _max_load_factor)
+	//{
+	//	// TODO...
+	//}
+	// Copy constructor
+	CBG_IMPL(const CBG_IMPL& that) = delete;
+	// Move constructor
+	CBG_IMPL(const CBG_IMPL&& that) = delete;
+	// Copy assignment operator
+	CBG_IMPL& operator=(const CBG_IMPL& that) = delete;
+	// Move assignment operator
+	CBG_IMPL& operator=(CBG_IMPL&& that) = delete;
+
+	~CBG_IMPL() noexcept
+	{
+		num_elems = 0;
+		num_buckets = 0;
+	}
+	///////////////////////////////////////////////////////////////////////////////
+
 	size_t capacity() const noexcept
+	{
+		return num_buckets;
+	}
+	// Same as capacity()
+	size_t bucket_count() const noexcept
 	{
 		return num_buckets;
 	}
@@ -1724,9 +1826,13 @@ public:
 	}
 
 	// Check if an element exist
-	uint32_t count(const KEY_TYPE& elem) const noexcept
+	uint32_t count(const KEY_TYPE& elem, Search_Hint hint = Search_Hint::Unknow) const noexcept
 	{
-		return find_position(elem) != SIZE_MAX ? 1u : 0u;
+		return find_position(elem, hint) != SIZE_MAX ? 1u : 0u;
+	}
+	bool contains(const KEY_TYPE& elem, Search_Hint hint = Search_Hint::Unknow) const noexcept
+	{
+		return find_position(elem, hint) != SIZE_MAX;
 	}
 
 	// TODO: As currently implemented the performance may
@@ -1748,16 +1854,15 @@ public:
 template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER, class EQ, class DATA, class METADATA, bool IS_NEGATIVE> class CBG_MAP_IMPL : 
 	public CBG_IMPL<NUM_ELEMS_BUCKET, std::pair<KEY, T>, KEY, T, HASHER, EQ, DATA, METADATA, IS_NEGATIVE>
 {
+	using Base = typename CBG_MAP_IMPL::CBG_IMPL;
+
 public:
-	CBG_MAP_IMPL() noexcept : CBG_IMPL()
-	{}
-	CBG_MAP_IMPL(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
-	{}
+	using Base::Base;
 
 	// Map operations
 	T& operator[](const KEY& key) noexcept
 	{
-		size_t key_pos = find_position(key);
+		size_t key_pos = find_position(key, Search_Hint::Expect_Positive);
 		if (key_pos == SIZE_MAX)
 		{
 			insert(std::make_pair(key, T()));
@@ -1768,7 +1873,7 @@ public:
 	}
 	T& operator[](KEY&& key) noexcept
 	{
-		size_t key_pos = find_position(key);
+		size_t key_pos = find_position(key, Search_Hint::Expect_Positive);
 		if (key_pos == SIZE_MAX)
 		{
 			insert(std::make_pair(std::move(key), T()));
@@ -1779,7 +1884,7 @@ public:
 	}
 	T& at(const KEY& key)
 	{
-		size_t key_pos = find_position(key);
+		size_t key_pos = find_position(key, Search_Hint::Expect_Positive);
 		if (key_pos == SIZE_MAX)
 			throw std::out_of_range("Argument passed to at() was not in the map.");
 
@@ -1787,7 +1892,7 @@ public:
 	}
 	const T& at(const KEY& key) const
 	{
-		size_t key_pos = find_position(key);
+		size_t key_pos = find_position(key, Search_Hint::Expect_Positive);
 		if (key_pos == SIZE_MAX)
 			throw std::out_of_range("Argument passed to at() was not in the map.");
 
@@ -1800,72 +1905,60 @@ public:
 // CBG Sets
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_SoA :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2<T>, class EQ = std::equal_to<T>> class Set_SoA :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_SoA<T>, cbg_internal::MetadataLayout_SoA, true>
 {
+	using Base = typename Set_SoA::CBG_IMPL;
+
 public:
-	Set_SoA() noexcept : CBG_IMPL()
-	{}
-	Set_SoA(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 // (Array of structs)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_AoS :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2<T>, class EQ = std::equal_to<T>> class Set_AoS :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoS<T>, cbg_internal::MetadataLayout_AoS<sizeof(T)>, false>
 {
+	using Base = typename Set_AoS::CBG_IMPL;
+
 public:
-	Set_AoS() noexcept : CBG_IMPL()
-	{}
-	Set_AoS(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 // (Array of blocks)
-template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2_pair<T>, class EQ = std::equal_to<T>> class Set_AoB :
+template<size_t NUM_ELEMS_BUCKET, class T, class HASHER = hashing::t1ha2<T>, class EQ = std::equal_to<T>> class Set_AoB :
 	public cbg_internal::CBG_IMPL<NUM_ELEMS_BUCKET, T, T, T, HASHER, EQ, cbg_internal::KeyLayout_AoB<T>, cbg_internal::MetadataLayout_AoB<alignof(T), cbg_internal::BlockKey<T>>, false>
 {
+	using Base = typename Set_AoB::CBG_IMPL;
+
 public:
-	Set_AoB() noexcept : CBG_IMPL()
-	{}
-	Set_AoB(size_t expected_num_elems) noexcept : CBG_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 ///////////////////////////////////////////////////////////////////////////////
 // CBG Maps
 ///////////////////////////////////////////////////////////////////////////////
 // (Struct of Arrays)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_SoA :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2<KEY>, class EQ = std::equal_to<KEY>> class Map_SoA :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_SoA<KEY, T>, cbg_internal::MetadataLayout_SoA, true>
 {
+	using Base = typename Map_SoA::CBG_MAP_IMPL;
+
 public:
-	Map_SoA() noexcept : CBG_MAP_IMPL()
-	{}
-	Map_SoA(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 // (Array of structs)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_AoS :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2<KEY>, class EQ = std::equal_to<KEY>> class Map_AoS :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoS<KEY, T>, cbg_internal::MetadataLayout_AoS<sizeof(KEY) + sizeof(T)>, false>
 {
+	using Base = typename Map_AoS::CBG_MAP_IMPL;
+
 public:
-	Map_AoS() noexcept : CBG_MAP_IMPL()
-	{}
-	Map_AoS(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 // (Array of blocks)
-template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2_pair<KEY>, class EQ = std::equal_to<KEY>> class Map_AoB :
+template<size_t NUM_ELEMS_BUCKET, class KEY, class T, class HASHER = hashing::t1ha2<KEY>, class EQ = std::equal_to<KEY>> class Map_AoB :
 	public cbg_internal::CBG_MAP_IMPL<NUM_ELEMS_BUCKET, KEY, T, HASHER, EQ, cbg_internal::MapLayout_AoB<KEY, T>, cbg_internal::MetadataLayout_AoB<cbg_internal::MaxAlignOf<KEY, T>::BLOCK_SIZE, cbg_internal::BlockMap<KEY, T>>, false>
 {
+	using Base = typename Map_AoB::CBG_MAP_IMPL;
+
 public:
-	Map_AoB() noexcept : CBG_MAP_IMPL()
-	{}
-	Map_AoB(size_t expected_num_elems) noexcept : CBG_MAP_IMPL(expected_num_elems)
-	{}
-	// TODO: Add other constructors (Copy, Move, ...)
+	using Base::Base;
 };
 }// end namespace cbg
