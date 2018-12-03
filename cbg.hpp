@@ -1221,8 +1221,8 @@ protected:
 	// Grow table
 	void rehash(size_t new_num_buckets) noexcept
 	{
-		if (new_num_buckets <= num_buckets)
-			return;
+		// Minimum grow space for the in-place algorithm to work
+		assert(new_num_buckets >= num_buckets + MIN_BUCKETS_COUNT);
 
 		// TODO: Do the rehash with less additional memory.
 		//       Now it uses ~18% when the load_factor is 90%
@@ -1237,7 +1237,7 @@ protected:
 
 			size_t old_num_buckets = num_buckets;
 			num_buckets = new_num_buckets;
-			new_num_buckets += std::max(1ull, new_num_buckets / 128ull);// add 0.8% if fails
+			new_num_buckets += std::max(static_cast<size_t>(1), new_num_buckets >> 5);// add 3.1% if fails
 
 			// Realloc data
 			DATA::ReallocElems(num_buckets);
@@ -1811,7 +1811,8 @@ public:
 
 	void reserve(size_t new_capacity) noexcept
 	{
-		rehash(new_capacity);
+		if(new_capacity >= num_buckets + MIN_BUCKETS_COUNT)
+			rehash(new_capacity);
 	}
 
 	void insert(const INSERT_TYPE& to_insert_elem) noexcept
@@ -1843,6 +1844,7 @@ public:
 		if (elem_pos != SIZE_MAX)
 		{
 			METADATA::Set_Empty(elem_pos);
+			num_elems--;
 			return 1;
 		}
 
