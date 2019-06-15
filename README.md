@@ -10,7 +10,7 @@ There are many hash tables types out there, each one with different characterist
 
 **Recommended:**
 
-- **Cuckoo Hash Table**: High table load (until **99%**) with deterministic worst case access time. See [Cuckoo Breeding Ground](research_cuckoo_cbg.md) for our variant of it.
+- **Cuckoo Hash Table**: High table load (until **99%**) with deterministic worst case access time. See [Cuckoo Breeding Ground](https://github.com/alainesp/CBG/) for our variant of it.
 
 ### Non-cryptographic hashing
 
