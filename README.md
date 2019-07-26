@@ -18,6 +18,8 @@ Hash functions typically use between 32-bit and 64 or 128-bit hashes. Typical me
 
 **Recommended:**
 
+- [wyhash](https://github.com/wangyi-fudan/wyhash): Wyhash
+- [XXH3](https://github.com/Cyan4973/xxHash): XXH3, a new version from xxHash.
 - [t1ha2](https://github.com/leo-yuriev/t1ha): "Fast Positive Hash" for 64-bit CPUs.
 - [SMHasher](https://github.com/rurban/smhasher): The most well known test suite designed to test the distribution, collision, and performance properties of non-cryptographic hash functions.
 - [A Seven-Dimensional Analysis of Hashing Methods and its Implications on Query Processing](https://infosys.cs.uni-saarland.de/publications/p249-richter.pdf) for a concise overview of the best hash table strategies, confirming that the simplest Mult hashing (bernstein, FNV*, x17, sdbm) always beat "better" hash functions (Tabulation, Murmur, Farm, ...) when used in a hash table.
